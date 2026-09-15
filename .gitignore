@@ -4,6 +4,10 @@ dist/
 *.local
 docs/
 *.tsbuildinfo
+.workbuddy-ai/
+
+# Prisma 生成的 client 本地生成，不提交
+apps/api/src/lib/prisma-client/
 
 # TS 增量编译缓存
 *.tsbuildinfo

@@ -1,0 +1,33 @@
+// task-02 创建：存放账号认证与角色档案
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/prisma-client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 账号层：一个邮箱对应一份登录凭据，角色信息在 players 表
+model Account {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  players      Player[]
+
+  @@map("accounts")
+}
+
+// 角色层：挂靠在账号下的游戏存档主体，后续 saves 表会关联到它
+model Player {
+  id        String   @id @default(uuid())
+  accountId String   @map("account_id")
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // 一个账号可挂多个角色（放置游戏常见多存档槽位），按 accountId 建索引保证查询效率
+  @@index([accountId])
+  @@map("players")
+}
