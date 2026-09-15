@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.local
+docs/
+*.tsbuildinfo
+
+# TS 增量编译缓存
+*.tsbuildinfo
