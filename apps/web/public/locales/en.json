@@ -1,0 +1,18 @@
+{
+  "app.title": "LazyCraft Idle Workshop",
+  "app.subtitle": "Skeleton ready, waiting for game content",
+  "app.loading": "Loading…",
+  "nav.home": "Home",
+  "nav.inventory": "Inventory",
+  "nav.settings": "Settings",
+  "skill.mining.name": "Mining",
+  "skill.mining.description": "Dig up ores and gems",
+  "skill.smithing.name": "Smithing",
+  "skill.smithing.description": "Forge ores into equipment",
+  "skill.combat.name": "Combat",
+  "skill.combat.description": "Fight enemies for loot",
+  "item.copper_ore.name": "Copper Ore",
+  "item.copper_ore.description": "The most basic ore, used in smithing",
+  "common.confirm": "Confirm",
+  "common.cancel": "Cancel"
+}

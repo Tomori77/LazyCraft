@@ -26,8 +26,28 @@ model Player {
   account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   name      String
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  save      Save?
 
   // 一个账号可挂多个角色（放置游戏常见多存档槽位），按 accountId 建索引保证查询效率
   @@index([accountId])
   @@map("players")
+}
+
+// 存档层：与玩家一对一，data 是 jsonb 允许部分字段演进、整体版本由 version 字段控制
+//
+// 为什么 data 用 jsonb 而不是关系表？
+//   放置游戏的"背包/技能/装备"在服务端只是结算时的输入参数，没有跨存档的行级查询需求；
+//   把它打平成关系表反而把每次存档写放大了 N 倍（参考《框架设计》5.4 节"存档即文档"原则）。
+// 为什么 version 单独一列而不是塞在 data 里？
+//   迁移扫描时只需要读 version 一列来判断是否需要迁移，避免把每个存档的完整 jsonb 加载进内存。
+model Save {
+  id        String   @id @default(uuid())
+  playerId  String   @unique @map("player_id")
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  version   Int      @default(1)
+  data      Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // 每个角色只能有一份当前存档（多角色靠 players 表横向扩展，不是在一个 player 下挂多份 save）
+  @@map("saves")
 }

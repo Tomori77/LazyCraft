@@ -1,0 +1,18 @@
+{
+  "app.title": "LazyCraft 放置工坊",
+  "app.subtitle": "骨架已就绪，等待接入游戏内容",
+  "app.loading": "加载中…",
+  "nav.home": "首页",
+  "nav.inventory": "仓库",
+  "nav.settings": "设置",
+  "skill.mining.name": "采矿",
+  "skill.mining.description": "挖掘矿石与宝石",
+  "skill.smithing.name": "锻造",
+  "skill.smithing.description": "将矿石锻造成装备",
+  "skill.combat.name": "战斗",
+  "skill.combat.description": "与敌人交战获取战利品",
+  "item.copper_ore.name": "铜矿石",
+  "item.copper_ore.description": "最基础的矿石，可用于锻造",
+  "common.confirm": "确认",
+  "common.cancel": "取消"
+}
