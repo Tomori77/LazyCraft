@@ -19,11 +19,13 @@ export function exp(level: number): number {
   return level ** 3;
 }
 
-/** 由累计经验反查等级。恰好落在边界时返回上一级所需的门槛本身（左闭右开） */
+/** 由累计经验反查等级。恰好落在边界时返回上一级所需的门槛本身（左闭右开）；0 经验视为 1 级 */
 export function levelFromExp(experience: number): number {
-  if (!Number.isFinite(experience) || experience < 1) {
-    throw new RangeError(`experience 必须是 ≥1 的有限数，收到: ${experience}`);
+  if (!Number.isFinite(experience) || experience < 0) {
+    throw new RangeError(`experience 必须是 ≥0 的有限数，收到: ${experience}`);
   }
+  // 0 经验=1 级：新玩家没有任何动作记录时也必须能反查等级
+  if (experience < 1) return 1;
   // 利用三次函数单调性，Math.cbrt 直接求立方根；
   // floor 之前向上取 epsilon 抵消浮点误差在整数边界上的抖动（例如 1000 → 3.0000…1）
   const root = Math.cbrt(experience);

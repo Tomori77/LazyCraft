@@ -1,19 +1,16 @@
-import { LoginForm } from './auth/login-form.tsx';
-import { SettingsPanel } from './settings/settings-panel.tsx';
-import { useT } from './i18n/index.ts';
+import { useAuth } from './auth/auth.tsx';
+import { GameLayout, GuestView } from './game-layout.tsx';
 
+/**
+ * 应用入口：只负责"游客 / 玩家"的顶级分流
+ *
+ * 为什么用 token 而不是 email 判断登录态：AuthContext 的契约就是
+ * "token 为 null = 游客"，token 是所有受保护资源的唯一钥匙，
+ * 跟着同一判据走，避免两个字段不同步导致幽灵登录态。
+ */
 function App() {
-  const { t } = useT();
-
-  return (
-    <main className="app">
-      <h1>{t('app.title')}</h1>
-      <p>{t('app.subtitle')}</p>
-      {/* 语言切换已由设置面板接管（task-05），不再保留 task-04 的临时按钮 */}
-      <SettingsPanel />
-      <LoginForm />
-    </main>
-  );
+  const { token } = useAuth();
+  return token ? <GameLayout /> : <GuestView />;
 }
 
 export default App;

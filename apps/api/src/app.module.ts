@@ -4,10 +4,11 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { SaveModule } from './save/save.module.js';
+import { ActionModule } from './action/action.module.js';
 import { AppConfigModule } from './config/config.module.js';
 
 @Module({
-  imports: [AuthModule, SaveModule, AppConfigModule],
+  imports: [AuthModule, SaveModule, ActionModule, AppConfigModule],
   controllers: [AppController],
   providers: [AppService,
     {

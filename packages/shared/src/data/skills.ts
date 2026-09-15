@@ -39,9 +39,19 @@ export const SKILL_FISHING: Skill = {
   breakthrough_enabled: true,
 };
 
+/** 生火：消耗木材类产生熟食品/木炭；task-08 至少需要一个"材料消耗"动作挂在它身上才能走校验通路 */
+export const SKILL_FIREMAKING: Skill = {
+  id: 'firemaking',
+  name: '生火',
+  type: 'non_combat',
+  max_level: 99,
+  breakthrough_enabled: true,
+};
+
 export const SKILLS: readonly Skill[] = [
   SKILL_ATTACK,
   SKILL_MINING,
   SKILL_WOODCUTTING,
   SKILL_FISHING,
+  SKILL_FIREMAKING,
 ];

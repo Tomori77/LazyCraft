@@ -1,4 +1,4 @@
-import {
+﻿import {
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -18,7 +18,7 @@ import { migrateSave } from './migrations/index.js';
  */
 @Injectable()
 export class SaveService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(public readonly prisma: PrismaClient) {}
 
   /**
    * 当前账号没有显式的"角色选择"流程，约定每个账号至少有一个默认 player。
@@ -27,8 +27,12 @@ export class SaveService {
    * 为什么不在注册账号时同步创建 player？
    *   注册与存档属于不同模块的职责；用懒创建可以让 AuthModule 不需要感知 Player 的存在，
    *   后续要支持"多存档槽位"时也是改这一处而不是动注册流程。
+   *
+   * 为什么是 public？
+   *   task-08 的 ActionModule 需要绕开"读存档"只拿 player.id 去做条件更新。
+   *   把 player 定位逻辑收敛在这一处，比让 ActionModule 再写一遍 findFirst+create 更保险。
    */
-  private async ensureDefaultPlayer(accountId: string) {
+  async ensurePlayer(accountId: string) {
     const existed = await this.prisma.player.findFirst({
       where: { accountId },
       orderBy: { createdAt: 'asc' },
@@ -47,7 +51,7 @@ export class SaveService {
    * 若 DB 里存档版本落后，迁移成功后立即回写。
    */
   async read(accountId: string) {
-    const player = await this.ensureDefaultPlayer(accountId);
+    const player = await this.ensurePlayer(accountId);
     let save = await this.prisma.save.findUnique({ where: { playerId: player.id } });
 
     if (!save) {
@@ -95,7 +99,7 @@ export class SaveService {
    * 让客户端重新拉取服务器的最新存档再决定下一步——保证服务端永远是唯一可信源。
    */
   async write(accountId: string, clientVersion: number, data: Record<string, unknown>) {
-    const player = await this.ensureDefaultPlayer(accountId);
+    const player = await this.ensurePlayer(accountId);
     const save = await this.prisma.save.findUnique({ where: { playerId: player.id } });
 
     // 首次写入允许基于"空存档"直接创建；否则要求客户端版本必须等于 DB 版本

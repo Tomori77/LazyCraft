@@ -27,6 +27,7 @@ const MINE_COPPER: SkillAction = {
   input_items: {},
   output_items: { copper_ore: 1 },
   output_exp: 0,
+  required_level: 1,
 };
 
 /** 有消耗的动作：1 秒一次，耗 1 木头，产 1 木炭 */
@@ -39,6 +40,7 @@ const BURN_WOOD: SkillAction = {
   input_items: { wood: 1 },
   output_items: { charcoal: 1 },
   output_exp: 0,
+  required_level: 1,
 };
 
 /** 造一个新玩家：默认背包 100 格，无动作 */

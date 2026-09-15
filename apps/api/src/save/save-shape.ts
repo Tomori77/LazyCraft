@@ -10,6 +10,20 @@
 export const CURRENT_SAVE_VERSION = 1;
 
 /**
+ * 存档中"正在执行的动作"的形状
+ *
+ * 为什么 skill_id 也要冗余存进来？
+ *   idle 引擎的 ActiveAction 只存 action_id，反查 skill 需要遍历整张动作表。
+ *   存档是"文档"，一次冗余写入换来所有读取方（前端展示 / 结算路由）零查找成本。
+ */
+export interface ActiveActionData {
+  skill_id: string;
+  action_id: string;
+  /** 服务器时间戳（毫秒）：动作开始时刻 */
+  started_at: number;
+}
+
+/**
  * 存档 data 字段的 v1 结构
  *
  * 字段命名遵循《框架设计》5.4 节"存档即文档"原则——
@@ -26,7 +40,7 @@ export interface SaveData {
   /** 抽象资源（货币、体力等不占用格子的数值资源） */
   abstract_resources: Record<string, unknown>;
   /** 当前正在执行的动作，null = 空闲 */
-  current_action: unknown | null;
+  current_action: ActiveActionData | null;
   /** 玩家个人设置（音频、UI 偏好等，不影响结算） */
   settings: Record<string, unknown>;
 }

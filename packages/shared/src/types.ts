@@ -111,6 +111,14 @@ export interface SkillAction {
   output_items: Record<string, number>;
   /** 每次执行产出的额外抽象经验/资源（若有） */
   output_exp: number;
+  /**
+   * 解锁该动作所需的技能等级（1 级起）。
+   *
+   * 为什么放在动作上而不是技能上？
+   *   同一技能下的动作解锁门槛各不相同（1 级采铜矿、15 级采铁矿），
+   *   等级要求天然是动作的元数据——与 interval / 消耗 / 产出并列。
+   */
+  required_level: number;
 }
 
 /** 敌人 */
@@ -159,24 +167,48 @@ export interface Season {
   settled: boolean;
 }
 
+/** 内容类别：Registry.get()/list() 的查询维度 */
+export type ContentKind = 'skill' | 'action' | 'item' | 'enemy';
+
+/** 按类别存储的内容联合类型 */
+export type Content = Skill | SkillAction | Item | Enemy;
+
+/** Registry.validate() 的返回结构：ok=false 时 errors 包含全部不一致项 */
+export interface ValidateResult {
+  ok: boolean;
+  errors: string[];
+}
+
 /**
  * 注册表
  *
  * 引擎对所有"内容"的统一入口，DLC 通过 ContentPack.register 注入。
+ *
+ * 双视角设计：
+ *   - 写视角（DLC 用）：skill()/action()/item()/enemy() 逐条登记
+ *   - 读视角（引擎用）：register(pack) 整包载入、get(id, type) 精确取、
+ *     list(type) 列一类、validate() 启动自检
  */
 export interface Registry {
+  /* 写视角：供 ContentPack.register 调用 */
   /** 注册一个技能 */
   skill(skill: Skill): void;
   /** 注册一个动作 */
   action(action: SkillAction): void;
   /** 注册一个物品 */
   item(item: Item): void;
-  /** 按 ID 获取已注册内容 */
-  get(id: string): Skill | SkillAction | Item | undefined;
-  /** 按类型列出已注册内容 */
-  list(kind: 'skill' | 'action' | 'item'): Array<Skill | SkillAction | Item>;
+  /** 注册一个敌人 */
+  enemy(enemy: Enemy): void;
+
+  /* 读视角：引擎消费用 */
+  /** 整包注册一个内容包 */
+  register(pack: ContentPack): void;
+  /** 按 ID + 类别精确取已注册内容 */
+  get(id: string, type: ContentKind): Skill | SkillAction | Item | Enemy | undefined;
+  /** 按类别列出已注册内容 */
+  list(type: ContentKind): Array<Skill | SkillAction | Item | Enemy>;
   /** 注册完成后做一致性校验（例如所有 action.skill_id 必须存在） */
-  validate(): { ok: boolean; errors: string[] };
+  validate(): ValidateResult;
 }
 
 /** DLC 内容包契约 */

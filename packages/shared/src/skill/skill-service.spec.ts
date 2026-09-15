@@ -41,8 +41,8 @@ describe('levelFromExp()', () => {
     }
   });
 
-  it('非法输入拒绝', () => {
-    expect(() => levelFromExp(0)).toThrow(RangeError);
+  it('非法输入拒绝；0 经验按新玩家处理视为 1 级', () => {
+    expect(levelFromExp(0)).toBe(1); // 新玩家没有经验记录，但等级必须是 1
     expect(() => levelFromExp(-10)).toThrow(RangeError);
     expect(() => levelFromExp(Number.NaN)).toThrow(RangeError);
   });
