@@ -40,3 +40,193 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---------- 设置触发按钮 ---------- */
+.settings-trigger {
+  padding: 0.4rem 1.25rem;
+  border: 1px solid #4ade80;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  margin: 0.5rem 0;
+}
+
+.settings-trigger:hover {
+  background: rgba(74, 222, 128, 0.12);
+}
+
+/* ---------- 设置弹窗 ---------- */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* rem 相对根字号缩放：1280 与 1920 视口下视觉占比接近，无需媒体查询 */
+.settings-modal {
+  width: min(22rem, 92vw);
+  background: #23272f;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 1rem 1.25rem 1.25rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #4ade80;
+}
+
+.settings-close {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 1.25rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.15rem 0.35rem;
+}
+
+.settings-close:hover {
+  color: #e5e7eb;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+}
+
+.settings-field label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.9rem;
+  color: #d1d5db;
+}
+
+.settings-value {
+  color: #4ade80;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-field-inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-field input[type='range'] {
+  width: 100%;
+  accent-color: #4ade80;
+}
+
+.settings-field input[type='checkbox'] {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: #4ade80;
+  cursor: pointer;
+}
+
+.settings-field select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #4b5563;
+  border-radius: 4px;
+  background: #1a1d23;
+  color: inherit;
+}
+
+/* ---------- 登录 / 注册 ---------- */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(18rem, 90vw);
+  margin-top: 1rem;
+  padding: 1.1rem;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  background: #23272f;
+}
+
+.login-form h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  color: #4ade80;
+}
+
+.login-form input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #4b5563;
+  border-radius: 4px;
+  background: #1a1d23;
+  color: inherit;
+}
+
+.login-form input:focus {
+  outline: none;
+  border-color: #4ade80;
+}
+
+.login-form button {
+  padding: 0.45rem;
+  border: none;
+  border-radius: 4px;
+  background: #4ade80;
+  color: #111827;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-form button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.login-form .login-switch {
+  background: transparent;
+  color: #9ca3af;
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+.login-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #f87171;
+}
+
+.auth-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  background: #23272f;
+  font-size: 0.9rem;
+}
+
+.auth-bar button {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid #4b5563;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
