@@ -19,6 +19,26 @@ export type Rarity = 'normal' | 'magic' | 'epic' | 'legendary';
 export type SkillType = 'combat' | 'non_combat';
 
 /**
+ * 抽象资源
+ *
+ * 账号绑定、不占背包的"数值资源"（木材/石材/铁锭），
+ * 与物品资源强制分离（见《框架设计》4.3 铁律：物品 → 抽象不可逆，
+ * 防止玩家跳过制作环节）。
+ */
+export interface AbstractResource {
+  /** 资源唯一 ID（例如：'res_wood'） */
+  id: string;
+  /** 显示名 */
+  name: string;
+  /** 阶位：用于解锁门槛与排序展示 */
+  tier: number;
+  /** 图标标识（前端按 key 取图，缺省回退首字母） */
+  icon?: string;
+  /** 描述文案 */
+  description?: string;
+}
+
+/**
  * 物品资源
  *
  * 占仓库格子、可挂市场交易的实体物品（区别于"抽象资源"）。
