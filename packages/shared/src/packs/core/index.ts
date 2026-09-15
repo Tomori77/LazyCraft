@@ -47,6 +47,20 @@ export const ITEM_WOOD: Item = {
   broadcast_threshold: 'epic',
 };
 
+/** 羽毛：鸡的专属掉落物（给 task-14 掉落表演示"item 词条"通路的最小示例） */
+export const ITEM_FEATHER: Item = {
+  id: 'feather',
+  name: '羽毛',
+  type: 'material',
+  tier: 1,
+  stack_max: 999,
+  tradeable: true,
+  quality: ['common'],
+  use_tags: ['craft_material', 'sellable'],
+  rarity: 'normal',
+  broadcast_threshold: 'epic',
+};
+
 /* ------------------------------------------------------------------ */
 /* 动作                                                                  */
 /* ------------------------------------------------------------------ */
@@ -85,8 +99,9 @@ export const ACTION_CHOP_TREE: SkillAction = {
  * 鸡：P0 唯一一只近战训练怪。
  *
  * 为什么是鸡？
- *   数值最低（5 HP / 1 攻击）让玩家空手也能打赢，同时
- *   掉落表是 P1 才做，loot_table_id 先占位不写，避免现在就要设计掉落。
+ *   数值最低（5 HP / 1 攻击）让玩家空手也能打赢。
+ *   task-14 之后它的掉落表指向 LOOT_TABLE_CHICKEN（'loot_chicken'），
+ *   演示"杀怪 → 掉落羽毛 / 破旧皮甲 / 短剑"的完整链路。
  */
 export const ENEMY_CHICKEN: Enemy = {
   id: 'chicken',
@@ -95,6 +110,7 @@ export const ENEMY_CHICKEN: Enemy = {
   hp: 5,
   attack: 1,
   defense: 0,
+  loot_table_id: 'loot_chicken',
 };
 
 /* ------------------------------------------------------------------ */
@@ -123,6 +139,7 @@ export const CorePack: ContentPack = {
 
     registry.item(ITEM_TINY_COPPER_VEIN);
     registry.item(ITEM_WOOD);
+    registry.item(ITEM_FEATHER);
 
     registry.action(ACTION_MINE_TINY_VEIN);
     registry.action(ACTION_CHOP_TREE);

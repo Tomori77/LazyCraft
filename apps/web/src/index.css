@@ -1,25 +1,24 @@
-/* ---------- 设计令牌（本任务定义，后续布局全部消费变量） ---------- */
+/* ---------- 璁捐浠ょ墝锛堟湰浠诲姟瀹氫箟锛屽悗缁竷灞€鍏ㄩ儴娑堣垂鍙橀噺锛?---------- */
 :root {
-  /* 为什么主色用 #1a1d23 而不是纯黑：纯黑在暗色主题下对比度过高，长时间盯着容易眼疲劳；
-     深灰保留暗色氛围的同时给面板留出 #23272f 的层级空间。 */
+  /* 涓轰粈涔堜富鑹茬敤 #1a1d23 鑰屼笉鏄函榛戯細绾粦鍦ㄦ殫鑹蹭富棰樹笅瀵规瘮搴﹁繃楂橈紝闀挎椂闂寸洴鐫€瀹规槗鐪肩柌鍔筹紱
+     娣辩伆淇濈暀鏆楄壊姘涘洿鐨勫悓鏃剁粰闈㈡澘鐣欏嚭 #23272f 鐨勫眰绾х┖闂淬€?*/
   --color-bg: #1a1d23;
   --color-surface: #23272f;
   --color-text: #e5e7eb;
-  /* 为什么强调色用 #4ade80：绿色在放置游戏里代表"增长/收益"，且与深灰底色形成高对比 */
+  /* 涓轰粈涔堝己璋冭壊鐢?#4ade80锛氱豢鑹插湪鏀剧疆娓告垙閲屼唬琛?澧為暱/鏀剁泭"锛屼笖涓庢繁鐏板簳鑹插舰鎴愰珮瀵规瘮 */
   --color-accent: #4ade80;
   --color-border: #374151;
   --color-border-input: #4b5563;
   --color-text-secondary: #9ca3af;
 
-  /* 为什么固定这些字号：1280x720 和 1920x1080 共用同一套 rem 基准，
-     字号不随分辨率缩放，保证两种分辨率下信息密度一致 */
+  /* 涓轰粈涔堝浐瀹氳繖浜涘瓧鍙凤細1280x720 鍜?1920x1080 鍏辩敤鍚屼竴濂?rem 鍩哄噯锛?     瀛楀彿涓嶉殢鍒嗚鲸鐜囩缉鏀撅紝淇濊瘉涓ょ鍒嗚鲸鐜囦笅淇℃伅瀵嗗害涓€鑷?*/
   --font-size-base: 1rem;
   --font-size-sm: 0.85rem;
 
   --radius-sm: 4px;
 
-  /* 为什么侧栏用 14rem 而不是百分比：1280 下 14rem 足够放下"技能列表"四字不换行，
-     1920 下也不会显得过宽；rem 跟随根字号，两种分辨率下视觉占比一致 */
+  /* 涓轰粈涔堜晶鏍忕敤 14rem 鑰屼笉鏄櫨鍒嗘瘮锛?280 涓?14rem 瓒冲鏀句笅"鎶€鑳藉垪琛?鍥涘瓧涓嶆崲琛岋紝
+     1920 涓嬩篃涓嶄細鏄惧緱杩囧锛況em 璺熼殢鏍瑰瓧鍙凤紝涓ょ鍒嗚鲸鐜囦笅瑙嗚鍗犳瘮涓€鑷?*/
   --sidebar-width: 14rem;
   --rightbar-width: 16rem;
   --gap: 0.75rem;
@@ -30,7 +29,7 @@
   background-color: var(--color-bg);
 }
 
-/* ---------- 屏幕阅读器辅助 ---------- */
+/* ---------- 灞忓箷闃呰鍣ㄨ緟鍔?---------- */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -47,7 +46,7 @@ body {
   margin: 0;
 }
 
-/* ---------- 游客视图（未登录） ---------- */
+/* ---------- 娓稿瑙嗗浘锛堟湭鐧诲綍锛?---------- */
 .guest-layout {
   display: flex;
   flex-direction: column;
@@ -56,9 +55,9 @@ body {
   min-height: 100vh;
 }
 
-/* ---------- 三栏主布局 ---------- */
-/* 为什么用 CSS Grid 而不是 Flex：三栏的左右宽度固定、中间弹性收缩，
-   Grid 的模板列语法把这种意图一次声明清楚，不需要嵌套 flex 容器 */
+/* ---------- 涓夋爮涓诲竷灞€ ---------- */
+/* 涓轰粈涔堢敤 CSS Grid 鑰屼笉鏄?Flex锛氫笁鏍忕殑宸﹀彸瀹藉害鍥哄畾銆佷腑闂村脊鎬ф敹缂╋紝
+   Grid 鐨勬ā鏉垮垪璇硶鎶婅繖绉嶆剰鍥句竴娆″０鏄庢竻妤氾紝涓嶉渶瑕佸祵濂?flex 瀹瑰櫒 */
 .layout-grid {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr var(--rightbar-width);
@@ -154,8 +153,8 @@ body {
   gap: 0.5rem;
 }
 
-/* ---------- 背包面板（task-12） ---------- */
-/* 为什么背包面板也用 --color-surface：与占位符保持一致，维持右栏视觉统一 */
+/* ---------- 鑳屽寘闈㈡澘锛坱ask-12锛?---------- */
+/* 涓轰粈涔堣儗鍖呴潰鏉夸篃鐢?--color-surface锛氫笌鍗犱綅绗︿繚鎸佷竴鑷达紝缁存寔鍙虫爮瑙嗚缁熶竴 */
 .inventory-panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -219,7 +218,7 @@ body {
   color: #f87171;
 }
 
-/* 为什么网格 wrapper 需要 relative：tooltip 要用 absolute 定位在格子附近 */
+/* 涓轰粈涔堢綉鏍?wrapper 闇€瑕?relative锛歵ooltip 瑕佺敤 absolute 瀹氫綅鍦ㄦ牸瀛愰檮杩?*/
 .inventory-grid-wrapper {
   position: relative;
   flex: 1;
@@ -282,7 +281,7 @@ body {
   line-height: 1;
 }
 
-/* 为什么 tooltip 用 absolute 而不是 fixed：父容器有滚动时 fixed 会脱离滚动流 */
+/* 涓轰粈涔?tooltip 鐢?absolute 鑰屼笉鏄?fixed锛氱埗瀹瑰櫒鏈夋粴鍔ㄦ椂 fixed 浼氳劚绂绘粴鍔ㄦ祦 */
 .inventory-tooltip {
   position: absolute;
   top: 0;
@@ -355,7 +354,7 @@ body {
   color: var(--color-accent);
 }
 
-/* ---------- 以下保留 task-04/05 已定义的组件样式（SettingsPanel / LoginForm / AuthBar） ---------- */
+/* ---------- 浠ヤ笅淇濈暀 task-04/05 宸插畾涔夌殑缁勪欢鏍峰紡锛圫ettingsPanel / LoginForm / AuthBar锛?---------- */
 
 .app h1 {
   color: var(--color-accent);
@@ -381,7 +380,7 @@ body {
   cursor: default;
 }
 
-/* ---------- 设置触发按钮 ---------- */
+/* ---------- 璁剧疆瑙﹀彂鎸夐挳 ---------- */
 .settings-trigger {
   padding: 0.4rem 1.25rem;
   border: 1px solid var(--color-accent);
@@ -396,7 +395,7 @@ body {
   background: rgba(74, 222, 128, 0.12);
 }
 
-/* ---------- 设置弹窗 ---------- */
+/* ---------- 璁剧疆寮圭獥 ---------- */
 .settings-overlay {
   position: fixed;
   inset: 0;
@@ -407,7 +406,7 @@ body {
   z-index: 100;
 }
 
-/* rem 相对根字号缩放：1280 与 1920 视口下视觉占比接近，无需媒体查询 */
+/* rem 鐩稿鏍瑰瓧鍙风缉鏀撅細1280 涓?1920 瑙嗗彛涓嬭瑙夊崰姣旀帴杩戯紝鏃犻渶濯掍綋鏌ヨ */
 .settings-modal {
   width: min(22rem, 92vw);
   background: var(--color-surface);
@@ -490,7 +489,7 @@ body {
   color: inherit;
 }
 
-/* ---------- 登录 / 注册 ---------- */
+/* ---------- 鐧诲綍 / 娉ㄥ唽 ---------- */
 .login-form {
   display: flex;
   flex-direction: column;
@@ -571,9 +570,9 @@ body {
   cursor: pointer;
 }
 
-/* ---------- task-11 技能/动作/进度/背包 ---------- */
+/* ---------- task-11 鎶€鑳?鍔ㄤ綔/杩涘害/鑳屽寘 ---------- */
 
-/* 左栏技能列表 */
+/* 宸︽爮鎶€鑳藉垪琛?*/
 .skill-panel {
   display: flex;
   flex-direction: column;
@@ -590,8 +589,7 @@ body {
   padding: 0;
 }
 
-/* 为什么技能入口用 button 而不仅是 li：可点击，需要键盘可达 + 焦点样式；
-   语义化 button 浏览器自动给 Enter/Space 激活，免去手写 keydown 处理 */
+/* 涓轰粈涔堟妧鑳藉叆鍙ｇ敤 button 鑰屼笉浠呮槸 li锛氬彲鐐瑰嚮锛岄渶瑕侀敭鐩樺彲杈?+ 鐒︾偣鏍峰紡锛?   璇箟鍖?button 娴忚鍣ㄨ嚜鍔ㄧ粰 Enter/Space 婵€娲伙紝鍏嶅幓鎵嬪啓 keydown 澶勭悊 */
 .skill-row {
   display: flex;
   align-items: center;
@@ -640,7 +638,7 @@ body {
   flex-shrink: 0;
 }
 
-/* 经验条：细长 2px 高、不抢戏，只是"我在升级"的视觉提示 */
+/* 缁忛獙鏉★細缁嗛暱 2px 楂樸€佷笉鎶㈡垙锛屽彧鏄?鎴戝湪鍗囩骇"鐨勮瑙夋彁绀?*/
 .skill-exp-bar {
   flex: 1;
   height: 2px;
@@ -655,7 +653,7 @@ body {
   background: var(--color-accent);
 }
 
-/* 动作列表（左栏底部） */
+/* 鍔ㄤ綔鍒楄〃锛堝乏鏍忓簳閮級 */
 .action-list {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
@@ -746,7 +744,7 @@ body {
   color: #f87171;
 }
 
-/* 中栏活动卡片 */
+/* 涓爮娲诲姩鍗＄墖 */
 .activity-panel {
   display: flex;
   flex-direction: column;
@@ -793,8 +791,8 @@ body {
   font-size: var(--font-size-sm);
 }
 
-/* 进度条：为什么背景轨道用 overflow:hidden + transform scaleX 而不是 width 百分比？
-   transform 触发合成器层动画，GPU 完成；width 会触发 layout，每帧都重排 */
+/* 杩涘害鏉★細涓轰粈涔堣儗鏅建閬撶敤 overflow:hidden + transform scaleX 鑰屼笉鏄?width 鐧惧垎姣旓紵
+   transform 瑙﹀彂鍚堟垚鍣ㄥ眰鍔ㄧ敾锛孏PU 瀹屾垚锛泈idth 浼氳Е鍙?layout锛屾瘡甯ч兘閲嶆帓 */
 .activity-progress {
   height: 10px;
   background: var(--color-bg);
@@ -845,7 +843,7 @@ body {
   color: #f87171;
 }
 
-/* 结算报告卡 */
+/* 缁撶畻鎶ュ憡鍗?*/
 .settle-wrapper {
   display: flex;
   flex-direction: column;
@@ -928,7 +926,7 @@ body {
   background: rgba(74, 222, 128, 0.12);
 }
 
-/* 右栏背包 */
+/* 鍙虫爮鑳屽寘 */
 .inventory-panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -996,8 +994,7 @@ body {
   color: var(--color-accent);
 }
 
-/* bump 动画：translateY 上移 + 字号微增，模拟"数字跳了一下"的反馈感；
-   位移不触发 layout，全程合成器层，流畅且不闪 */
+/* bump 鍔ㄧ敾锛歵ranslateY 涓婄Щ + 瀛楀彿寰锛屾ā鎷?鏁板瓧璺充簡涓€涓?鐨勫弽棣堟劅锛?   浣嶇Щ涓嶈Е鍙?layout锛屽叏绋嬪悎鎴愬櫒灞傦紝娴佺晠涓斾笉闂?*/
 .resource-quantity.is-bumping {
   animation: resource-bump 0.5s ease-out;
 }
@@ -1013,3 +1010,224 @@ body {
     transform: translateY(0) scale(1);
   }
 }
+
+/* ---------- 排行榜（并行任务添加） ---------- */
+.leaderboard-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.leaderboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.leaderboard-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-accent);
+}
+
+.leaderboard-list { list-style: none; margin: 0; padding: 0; }
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 2rem 1fr 3rem;
+  align-items: baseline;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.leaderboard-row:last-child { border-bottom: none; }
+.leaderboard-row.is-me { color: var(--color-accent); font-weight: 600; }
+.leaderboard-rank { color: var(--color-text-secondary); }
+.leaderboard-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.leaderboard-refresh {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.leaderboard-refresh:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.leaderboard-refresh:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- 任务面板 ---------- */
+.quest-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.quest-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.quest-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-accent);
+}
+
+.quest-refresh {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.quest-error { color: #fca5a5; font-size: 0.85rem; }
+.quest-empty { color: var(--color-text-secondary); font-size: 0.85rem; }
+.quest-list { list-style: none; margin: 0; padding: 0; }
+
+.quest-row {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.quest-row:last-child { border-bottom: none; }
+.quest-row.is-completed { opacity: 0.6; }
+
+.quest-head { display: flex; justify-content: space-between; align-items: baseline; }
+.quest-name { font-weight: 600; color: var(--color-text); }
+.quest-badge-done {
+  font-size: 0.75rem;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.quest-desc { margin: 0.25rem 0; font-size: 0.85rem; color: var(--color-text-secondary); }
+
+.quest-progress {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.35rem 0;
+}
+.quest-progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 250ms ease;
+}
+
+.quest-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.quest-btn {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  background: var(--color-accent);
+  color: #0b1220;
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quest-btn-claim { background: #fde047; }
+
+/* ---------- 新手引导 ---------- */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+}
+
+.tutorial-highlight {
+  position: fixed;
+  border: 2px solid var(--color-accent);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 210;
+  box-shadow: 0 0 24px rgba(74, 222, 128, 0.5), inset 0 0 12px rgba(74, 222, 128, 0.2);
+  animation: tutorial-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tutorial-pulse {
+  0%, 100% { box-shadow: 0 0 24px rgba(74, 222, 128, 0.5), inset 0 0 12px rgba(74, 222, 128, 0.2); }
+  50% { box-shadow: 0 0 32px rgba(74, 222, 128, 0.8), inset 0 0 20px rgba(74, 222, 128, 0.35); }
+}
+
+.tutorial-bubble {
+  position: fixed;
+  left: 50%;
+  bottom: 4rem;
+  transform: translateX(-50%);
+  width: min(28rem, 92vw);
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  padding: 1rem 1.25rem 1.25rem;
+  z-index: 220;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.tutorial-bubble.is-anchored {
+  bottom: auto;
+  transform: none;
+}
+
+.tutorial-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.4rem;
+}
+.tutorial-step-indicator { color: var(--color-text-secondary); font-size: 0.8rem; }
+.tutorial-skip {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.tutorial-skip:hover { color: var(--color-text); }
+
+.tutorial-title { margin: 0 0 0.4rem; font-size: 1rem; color: var(--color-accent); }
+.tutorial-text { margin: 0 0 0.8rem; font-size: 0.9rem; line-height: 1.5; }
+
+.tutorial-actions { display: flex; justify-content: flex-end; }
+.tutorial-next {
+  padding: 0.4rem 1.1rem;
+  background: var(--color-accent);
+  color: #0b1220;
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 设置面板里的引导重播 */
+.replay-tutorial { display: flex; flex-direction: column; gap: 0.35rem; }
+.replay-tutorial-btn {
+  align-self: flex-start;
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.replay-tutorial-btn:hover { background: rgba(74, 222, 128, 0.08); }
+.replay-tutorial-hint { margin: 0; font-size: 0.8rem; color: var(--color-text-secondary); }

@@ -166,6 +166,7 @@ export function ActivityPanel() {
             aria-valuemax={100}
             aria-valuenow={Math.round(progressRef.current * 100)}
             aria-label={t('activity.progress')}
+            data-tutorial="progress"
           >
             <div ref={fillRef} className="activity-progress-fill" />
           </div>
@@ -186,7 +187,14 @@ export function ActivityPanel() {
             )}
           </div>
           <div className="activity-controls">
-            <button type="button" className="activity-stop" onClick={handleStop} disabled={pending}>
+            <button
+              type="button"
+              className="activity-stop"
+              onClick={handleStop}
+              disabled={pending}
+              /* 教程"收菜"步骤锚点 */
+              data-tutorial="harvest"
+            >
               {t('activity.stop_and_settle')}
             </button>
           </div>

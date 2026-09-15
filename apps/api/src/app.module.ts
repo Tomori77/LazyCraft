@@ -5,10 +5,12 @@ import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { SaveModule } from './save/save.module.js';
 import { ActionModule } from './action/action.module.js';
+import { LeaderboardModule } from './leaderboard/leaderboard.module.js';
 import { AppConfigModule } from './config/config.module.js';
+import { QuestModule } from './quest/quest.module.js';
 
 @Module({
-  imports: [AuthModule, SaveModule, ActionModule, AppConfigModule],
+  imports: [AuthModule, SaveModule, ActionModule, LeaderboardModule, AppConfigModule, QuestModule],
   controllers: [AppController],
   providers: [AppService,
     {

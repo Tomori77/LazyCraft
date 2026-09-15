@@ -5,7 +5,12 @@ import { LoginForm } from './auth/login-form.tsx';
 import { SkillPanel } from './skills/skill-panel.tsx';
 import { ActivityPanel } from './activity/activity-panel.tsx';
 import { InventoryPanel } from './inventory/inventory-panel.tsx';
+import { LeaderboardPanel } from './leaderboard/leaderboard-panel.tsx';
 import { ActionProvider } from './action/action-context.tsx';
+import { QuestProvider } from './quest/quest-context.tsx';
+import { QuestPanel } from './quest/quest-panel.tsx';
+import { TutorialProvider } from './tutorial/tutorial-context.tsx';
+import { TutorialOverlay } from './tutorial/tutorial-overlay.tsx';
 
 /**
  * 游戏主界面布局（三栏）
@@ -20,6 +25,9 @@ import { ActionProvider } from './action/action-context.tsx';
  *   活动状态只在已登录的三栏界面里存在；GuestView（未登录）根本不需要
  *   这套 Provider。把它下移到 GameLayout，未登录路径就少一棵 Provider 子树，
  *   也能避免游客误触发 /api/action 请求。
+ *
+ * Provider 嵌套：Action 在最底（消费 token）→ Quest 中间（依赖 Action 的结算事件刷新）
+ *   → Tutorial 最外（纯 UI 态，无依赖）。
  */
 export function GameLayout() {
   const { t } = useT();
@@ -29,23 +37,31 @@ export function GameLayout() {
 
   return (
     <ActionProvider>
-      <main className="game-layout">
-        <h1 className="visually-hidden">{t('app.title')}</h1>
-        <div className="layout-grid">
-          <nav className="layout-sidebar" aria-label={t('layout.skill_list')}>
-            <SkillPanel selectedSkillId={selectedSkillId} onSelectSkill={setSelectedSkillId} />
-          </nav>
+      <QuestProvider>
+        <TutorialProvider>
+          <main className="game-layout">
+            <h1 className="visually-hidden">{t('app.title')}</h1>
+            <div className="layout-grid">
+              <nav className="layout-sidebar" aria-label={t('layout.skill_list')}>
+                <SkillPanel selectedSkillId={selectedSkillId} onSelectSkill={setSelectedSkillId} />
+              </nav>
 
-          <section className="layout-main" aria-label={t('layout.main_region')}>
-            <ActivityPanel />
-          </section>
+              <section className="layout-main" aria-label={t('layout.main_region')}>
+                <ActivityPanel />
+              </section>
 
-          <aside className="layout-right">
-            <InventoryPanel />
-            <SettingsPanel />
-          </aside>
-        </div>
-      </main>
+              <aside className="layout-right">
+                <QuestPanel />
+                <InventoryPanel />
+                <LeaderboardPanel />
+                <SettingsPanel />
+              </aside>
+            </div>
+            {/* 新手引导：覆盖在三栏之上，用高亮聚焦而不打断操作 */}
+            <TutorialOverlay />
+          </main>
+        </TutorialProvider>
+      </QuestProvider>
     </ActionProvider>
   );
 }

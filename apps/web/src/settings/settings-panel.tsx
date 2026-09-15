@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SUPPORTED_LANGUAGES, useT, type Language } from '../i18n/index.ts';
 import { useSettings } from './settings-context.tsx';
+import { useTutorial } from '../tutorial/tutorial-context.tsx';
 import type { GraphicsQuality } from './settings.ts';
 
 const QUALITY_OPTIONS: GraphicsQuality[] = ['low', 'medium', 'high'];
@@ -95,9 +96,43 @@ export function SettingsPanel() {
                 onChange={(e) => setAutoQueue(e.target.checked)}
               />
             </div>
+
+            {/* 新手引导重播：清除完成标记并从第 0 步重新开始 */}
+            <div className="settings-field">
+              <ReplayTutorialButton />
+            </div>
           </section>
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * "重新观看新手引导"按钮
+ *
+ * 为什么是小组件而不是直接内联 restart()？
+ *   点击后需要给用户即时反馈"已重置"，需要本地 clicked 态；
+ *   把组件抽出来可以让 SettingsPanel 主体保持纯表单布局，不掺引导逻辑。
+ */
+function ReplayTutorialButton() {
+  const { t } = useT();
+  const { restart } = useTutorial();
+  const [clicked, setClicked] = useState(false);
+
+  const handle = () => {
+    restart();
+    setClicked(true);
+    // 3 秒后清掉提示，避免一直占视觉重量
+    setTimeout(() => setClicked(false), 3000);
+  };
+
+  return (
+    <div className="replay-tutorial">
+      <button type="button" className="replay-tutorial-btn" onClick={handle}>
+        {t('tutorial.replay')}
+      </button>
+      {clicked && <p className="replay-tutorial-hint">{t('tutorial.replay_done')}</p>}
+    </div>
   );
 }

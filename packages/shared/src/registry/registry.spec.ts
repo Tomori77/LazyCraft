@@ -15,6 +15,7 @@ import {
   ACTION_CHOP_TREE,
   ACTION_MINE_TINY_VEIN,
   ENEMY_CHICKEN,
+  ITEM_FEATHER,
   ITEM_TINY_COPPER_VEIN,
   ITEM_WOOD,
 } from '../packs/core/index.js';
@@ -49,9 +50,9 @@ describe('ContentRegistry', () => {
     registry.register(CorePack);
 
     const items = registry.list('item');
-    expect(items).toHaveLength(2);
+    expect(items).toHaveLength(3);
     expect(items.map((i) => i.id).sort()).toEqual(
-      [ITEM_TINY_COPPER_VEIN.id, ITEM_WOOD.id].sort(),
+      [ITEM_TINY_COPPER_VEIN.id, ITEM_WOOD.id, ITEM_FEATHER.id].sort(),
     );
 
     const actions = registry.list('action');

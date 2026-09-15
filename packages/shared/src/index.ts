@@ -16,5 +16,8 @@ export * from './skill/skill-service.js';
 export * from './registry/index.js';
 export * from './packs/core/index.js';
 
+// 掉落 / 词缀 / 装备生成（task-14）：刷宝系统的数据与计算
+export * from './loot/index.js';
+
 // 共享核心类型契约（types.ts 是单一事实源）
 export * from './types.js';

@@ -13,6 +13,7 @@ import {
   type ItemStack,
   type PlayerState,
   type SkillAction,
+  type SettleReport,
   OFFLINE_CAP_MS,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
@@ -33,9 +34,31 @@ interface SkillsMap {
  *   2. 每次写存档前都重读 DB，并条件更新 current_action——防止两个标签页并发时互相覆盖；
  *   3. 结算用 packages/shared 的 settle()，与前端预览走同一份规则代码。
  */
+/**
+ * 结算产物订阅：任务模块（task-13）用来累计 craft_item 任务进度。
+ *
+ * 为什么用"注册监听器"而不是直接注入 QuestService？
+ *   动作模块（task-08）早于任务模块（task-13）存在；二者需要相互消费
+ *   会形成 import 环。用注册接口把"是否有人关心 gained"做成可选能力，
+ *   QuestModule 加载时自己注册进来；测试只加载 ActionModule 时行为退化为
+ *   "无监听器 = 不上报"，与历史版本完全一致。
+ */
+export type SettlementListener = (
+  accountId: string,
+  gained: SettleReport['gained'],
+) => void | Promise<void>;
+
 @Injectable()
 export class ActionService {
   constructor(private readonly saveService: SaveService) {}
+
+  /** 结算产物监听器：QuestService 注册，触发 craft_item 任务的进度累计 */
+  private settlementListeners: SettlementListener[] = [];
+
+  /** 由外部模块（QuestModule.onModuleInit）注册；多次注册按顺序逐个调用 */
+  registerSettlementListener(listener: SettlementListener) {
+    this.settlementListeners.push(listener);
+  }
 
   /**
    * 把存档 data 切成 idle 引擎认识的 PlayerState。
@@ -135,6 +158,16 @@ export class ActionService {
       current_action: null,
     };
     await this.compareAndSwapCurrentAction(accountId, current, nextData);
+
+    // 通知结算监听器（任务模块据此累计 craft_item 进度）；
+    // 失败静默——不阻塞 stop 的主路径，监听器自己负责兜错
+    for (const listener of this.settlementListeners) {
+      try {
+        await listener(accountId, report.gained);
+      } catch {
+        // 忽略监听器内部错误
+      }
+    }
 
     return { report, current_action: null };
   }

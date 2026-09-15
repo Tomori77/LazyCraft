@@ -55,7 +55,7 @@ export function SkillPanel({ selectedSkillId, onSelectSkill }: SkillPanelProps) 
   };
 
   return (
-    <div className="skill-panel">
+    <div className="skill-panel" data-tutorial="skills">
       <h2>{t('nav.skills')}</h2>
       <ul className="skill-list">
         {SKILLS.map((skill) => {
@@ -139,6 +139,8 @@ export function SkillPanel({ selectedSkillId, onSelectSkill }: SkillPanelProps) 
                       className="action-start"
                       disabled={disabled}
                       onClick={() => handleStart(action)}
+                      /* 教程引导：锚点"点开始活动"步骤；只为第一个可点开始按钮打标记 */
+                      data-tutorial={!disabled && !isActive ? 'start' : undefined}
                     >
                       {isActive ? t('actions.in_progress') : t('actions.start')}
                     </button>
