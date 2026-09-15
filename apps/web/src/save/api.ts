@@ -8,10 +8,19 @@ import type { PlayerSettings } from '../settings/settings.ts';
  * 写入是"整份 data 覆盖 + version 乐观锁"，冲突返回 409。
  */
 
+/** 背包格子形状：与存档 data.inventory、shared 包 idle 引擎 ItemStack 一致 */
+export interface InventoryStack {
+  item_id: string;
+  quantity: number;
+}
+
 export interface SavePayload {
   version: number;
-  /** 完整存档结构见 api 侧 save-shape.ts；设置模块只关心 settings 字段 */
-  data: Record<string, unknown> & { settings?: Record<string, unknown> };
+  /** 完整存档结构见 api 侧 save-shape.ts；背包模块消费 inventory 字段 */
+  data: Record<string, unknown> & {
+    settings?: Record<string, unknown>;
+    inventory?: InventoryStack[];
+  };
   updatedAt: string;
 }
 

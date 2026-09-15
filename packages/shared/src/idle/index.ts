@@ -83,6 +83,15 @@ export interface SettleReport {
   gained: ItemDelta[];
   /** 消耗物品 */
   consumed: ItemDelta[];
+  /**
+   * 因背包满而未能入包的产出（玩家可理解的"丢失"维度）。
+   *
+   * 为什么 settle 在背包满时提前停止还要有 lost？
+   *   背包满发生在某个 tick 中途：同一次 tick 可能先产出了能放下的物品，
+   *   剩余物品才触发满格。gained 只记实际入包量，lost 记放不下的差额，
+   *   结算报告才能给玩家一个总账（产出 = gained + lost）。
+   */
+  lost: ItemDelta[];
   /** 技能经验增加量 */
   exp_gained: Record<string, number>;
   /** 停止原因 */
@@ -223,6 +232,41 @@ function applyAdd(
   }
 }
 
+/**
+ * 计算一次产出中"能放得下"的部分与实际入包量。
+ * 供 settle 在背包满时把差额记进 lost，而不是直接丢弃。
+ */
+function computeAddCapacity(
+  inv: Inv,
+  outputs: Record<string, number>,
+  stackMax: (id: string) => number,
+): Map<string, number> {
+  const maxAddable = new Map<string, number>();
+  const simulate: ItemStack[] = inv.stacks.map((s) => ({ ...s }));
+  let freeSlots = inv.capacity - simulate.length;
+  for (const [itemId, qty] of Object.entries(outputs)) {
+    if (qty <= 0) continue;
+    const max = stackMax(itemId);
+    let remaining = qty;
+    for (const s of simulate) {
+      if (s.item_id !== itemId || s.quantity >= max) continue;
+      const space = max - s.quantity;
+      const add = Math.min(space, remaining);
+      s.quantity += add;
+      remaining -= add;
+      if (remaining <= 0) break;
+    }
+    while (remaining > 0 && freeSlots > 0) {
+      const take = Math.min(max, remaining);
+      simulate.push({ item_id: itemId, quantity: take });
+      freeSlots -= 1;
+      remaining -= take;
+    }
+    maxAddable.set(itemId, qty - remaining);
+  }
+  return maxAddable;
+}
+
 /** 累计产出/消耗明细 */
 function makeDeltaRecorder() {
   const map = new Map<string, ItemDelta>();
@@ -293,6 +337,7 @@ export function settle(input: SettleInput): SettleResult {
         ticks: 0,
         gained: [],
         consumed: [],
+        lost: [],
         exp_gained: {},
         stop_reason: StopReason.NoTicks,
       },
@@ -312,6 +357,7 @@ export function settle(input: SettleInput): SettleResult {
 
   const gained = makeDeltaRecorder();
   const consumed = makeDeltaRecorder();
+  const lost = makeDeltaRecorder();
   let stopReason: StopReason = StopReason.NoTicks;
   let ticks = 0;
   let expGained = 0;
@@ -325,10 +371,28 @@ export function settle(input: SettleInput): SettleResult {
       stopReason = ticks === 0 ? StopReason.NoTicks : StopReason.InputExhausted;
       break;
     }
+
+    // 背包满拆成两档：能全放 → 正常入账；放不下 → 先入能放的，差额记 lost
     if (hasOutputs && !canAdd(inv, action.output_items, stackMaxOf)) {
-      stopReason = ticks === 0 ? StopReason.NoTicks : StopReason.InventoryFull;
+      if (ticks === 0) {
+        stopReason = StopReason.NoTicks;
+      } else {
+        stopReason = StopReason.InventoryFull;
+        const maxAddable = computeAddCapacity(inv, action.output_items, stackMaxOf);
+        for (const [itemId, qty] of Object.entries(action.output_items)) {
+          const addable = maxAddable.get(itemId) ?? 0;
+          if (addable > 0) {
+            applyAdd(inv, { [itemId]: addable }, stackMaxOf);
+            gained.add(itemId, addable);
+          }
+          const missing = qty - addable;
+          if (missing > 0) lost.add(itemId, missing);
+        }
+        expGained += action.exp;
+      }
       break;
     }
+
     // 应用该 tick：先扣材料，再算产出
     applyConsume(inv, action.input_items);
     applyAdd(inv, action.output_items, stackMaxOf);
@@ -374,6 +438,7 @@ export function settle(input: SettleInput): SettleResult {
       ticks,
       gained: gained.list(),
       consumed: consumed.list(),
+      lost: lost.list(),
       exp_gained: expGained > 0 ? { [action.skill_id]: expGained } : {},
       stop_reason: stopReason,
     },

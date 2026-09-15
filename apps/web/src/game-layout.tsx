@@ -1,60 +1,52 @@
-import { SKILLS } from '@lazycraft/shared';
+import { useState } from 'react';
 import { useT } from './i18n/index.ts';
 import { SettingsPanel } from './settings/settings-panel.tsx';
 import { LoginForm } from './auth/login-form.tsx';
+import { SkillPanel } from './skills/skill-panel.tsx';
+import { ActivityPanel } from './activity/activity-panel.tsx';
+import { InventoryPanel } from './inventory/inventory-panel.tsx';
+import { ActionProvider } from './action/action-context.tsx';
 
 /**
  * 游戏主界面布局（三栏）
  *
- * 为什么左栏用 nav 语义化标签：技能列表承担导航职能（task-11 会接管中栏内容切换），
+ * 为什么左栏用 nav 语义化标签：技能列表承担导航职能（task-11 接管中栏内容切换），
  * 用 nav 让辅助技术能识别出这是导航区域。
  *
- * 为什么中栏占位用 section 而不是 div：它将是未来游戏玩法的核心画布，
+ * 为什么中栏占位用 section 而不是 div：它是游戏玩法的核心画布（进度/结算都在这里），
  * 用 section 明确其"主要区域"语义。
  *
- * 为什么右栏背包和设置放同一个 aside：两者都是辅助性功能，集中放置
- * 符合梅尔沃放置的右侧边栏模式；设置按钮用 SettingsPanel 自带触发，
- * 避免重复实现弹窗逻辑。
+ * 为什么 ActionProvider 包在 GameLayout 里而不是 App 顶层？
+ *   活动状态只在已登录的三栏界面里存在；GuestView（未登录）根本不需要
+ *   这套 Provider。把它下移到 GameLayout，未登录路径就少一棵 Provider 子树，
+ *   也能避免游客误触发 /api/action 请求。
  */
 export function GameLayout() {
   const { t } = useT();
+  // 左栏技能选择：仅本组件的中栏需要根据它渲染对应动作，因此放局部 state
+  // （跨组件共享的"当前活动"状态在 ActionProvider 里）
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
 
   return (
-    <main className="game-layout">
-      <h1 className="visually-hidden">{t('app.title')}</h1>
-      <div className="layout-grid">
-        <nav className="layout-sidebar" aria-label={t('layout.skill_list')}>
-          <h2>{t('nav.skills')}</h2>
-          <ul className="skill-list">
-            {SKILLS.map((skill) => (
-              <li key={skill.id}>
-                <span className="skill-icon" aria-hidden="true">
-                  {/* 无图标时回退为首字母，与 shared 包 AbstractResource.icon 的缺省策略一致 */}
-                  {skill.name.charAt(0)}
-                </span>
-                <span className="skill-name">{t(`skill.${skill.id}.name`)}</span>
-              </li>
-            ))}
-          </ul>
-        </nav>
+    <ActionProvider>
+      <main className="game-layout">
+        <h1 className="visually-hidden">{t('app.title')}</h1>
+        <div className="layout-grid">
+          <nav className="layout-sidebar" aria-label={t('layout.skill_list')}>
+            <SkillPanel selectedSkillId={selectedSkillId} onSelectSkill={setSelectedSkillId} />
+          </nav>
 
-        <section className="layout-main" aria-label={t('layout.main_region')}>
-          <div className="placeholder">
-            <p>{t('layout.placeholder')}</p>
-          </div>
-        </section>
+          <section className="layout-main" aria-label={t('layout.main_region')}>
+            <ActivityPanel />
+          </section>
 
-        <aside className="layout-right">
-          <div className="inventory-placeholder">
-            <h2>{t('nav.inventory')}</h2>
-            <div className="placeholder">
-              <p>{t('layout.placeholder')}</p>
-            </div>
-          </div>
-          <SettingsPanel />
-        </aside>
-      </div>
-    </main>
+          <aside className="layout-right">
+            <InventoryPanel />
+            <SettingsPanel />
+          </aside>
+        </div>
+      </main>
+    </ActionProvider>
   );
 }
 
