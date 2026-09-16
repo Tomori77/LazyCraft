@@ -75,7 +75,7 @@ export function listItem(
   token: string,
   payload: { itemId: string; quality?: Quality; quantity: number; price: number },
 ): Promise<ListResponse> {
-  return apiPost('/api/market/list', payload, token);
+  return apiPost('/market/list', payload, token);
 }
 
 export function cancelListing(token: string, id: string): Promise<CancelResponse> {
@@ -87,7 +87,7 @@ export function buyListing(token: string, id: string): Promise<BuyResponse> {
 }
 
 export function fetchMyListings(token: string): Promise<{ listings: Listing[] }> {
-  return apiGet('/api/market/my-listings', token);
+  return apiGet('/market/my-listings', token);
 }
 
 export function browseListings(

@@ -11,3 +11,6 @@ apps/api/src/lib/prisma-client/
 
 # TS 增量编译缓存
 *.tsbuildinfo
+
+lazycraft-api.tar
+web-dist.tar.gz

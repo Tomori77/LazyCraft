@@ -9,9 +9,9 @@ import { apiPost } from '../lib/api.ts';
  * 保持 http 层无状态，方便后续替换存储介质
  */
 export function login(email: string, password: string): Promise<{ accessToken: string }> {
-  return apiPost('/api/auth/login', { email, password });
+  return apiPost('/auth/login', { email, password });
 }
 
 export function register(email: string, password: string): Promise<{ account: { id: string; email: string } }> {
-  return apiPost('/api/auth/register', { email, password });
+  return apiPost('/auth/register', { email, password });
 }

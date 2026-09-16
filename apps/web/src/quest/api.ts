@@ -40,7 +40,7 @@ export interface QuestClaimResponse {
 }
 
 export function listQuests(token: string): Promise<QuestListResponse> {
-  return apiGet('/api/quests', token);
+  return apiGet('/quests', token);
 }
 
 export function acceptQuest(token: string, id: string): Promise<QuestSingleResponse> {

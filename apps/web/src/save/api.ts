@@ -25,11 +25,11 @@ export interface SavePayload {
 }
 
 export function readSave(token: string): Promise<SavePayload> {
-  return apiGet('/api/save', token);
+  return apiGet('/save', token);
 }
 
 export function writeSave(token: string, version: number, data: SavePayload['data']): Promise<SavePayload> {
-  return apiPost('/api/save', { version, data }, token);
+  return apiPost('/save', { version, data }, token);
 }
 
 /**

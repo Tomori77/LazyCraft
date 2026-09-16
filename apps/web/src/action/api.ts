@@ -34,13 +34,13 @@ export interface CurrentActionResponse {
 }
 
 export function startAction(token: string, skillId: string, actionId: string): Promise<StartActionResponse> {
-  return apiPost('/api/action/start', { skillId, actionId }, token);
+  return apiPost('/action/start', { skillId, actionId }, token);
 }
 
 export function stopAction(token: string): Promise<StopActionResponse> {
-  return apiPost('/api/action/stop', {}, token);
+  return apiPost('/action/stop', {}, token);
 }
 
 export function fetchCurrentAction(token: string): Promise<CurrentActionResponse> {
-  return apiGet('/api/action/current', token);
+  return apiGet('/action/current', token);
 }

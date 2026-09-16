@@ -54,6 +54,9 @@ COPY --from=build /app/apps/api/dist ./deploy/dist
 COPY --from=build /app/apps/api/src/lib/prisma-client ./deploy/src/lib/prisma-client
 # 迁移文件必须进镜像：容器内执行 npx prisma migrate deploy 时需要
 COPY apps/api/prisma ./deploy/prisma
+# 显式复制 shared 包的编译产物到部署目录
+COPY --from=build /app/packages/shared/dist ./deploy/node_modules/@lazycraft/shared/dist
+COPY --from=build /app/packages/shared/package.json ./deploy/node_modules/@lazycraft/shared/package.json
 
 # ----------------------------------------
 # 阶段 4：生产运行镜像
