@@ -45,6 +45,8 @@ COPY apps/api/package.json apps/api/
 COPY packages/shared/package.json packages/shared/
 # pnpm deploy 会生成一个仅含生产依赖的干净目录 /app/deploy，
 # 解决 pnpm 符号链接无法用 COPY 简单搬迁的问题
+# 新增这行，确保 Prisma CLI 可用
+RUN pnpm --filter @lazycraft/api add prisma --save-prod
 RUN pnpm --filter @lazycraft/api deploy --prod --legacy /app/deploy
 
 FROM prod-deps AS artifacts
