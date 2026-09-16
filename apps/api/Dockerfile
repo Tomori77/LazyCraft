@@ -44,7 +44,7 @@ COPY apps/api/package.json apps/api/
 COPY packages/shared/package.json packages/shared/
 # pnpm deploy 会生成一个仅含生产依赖的干净目录 /app/deploy，
 # 解决 pnpm 符号链接无法用 COPY 简单搬迁的问题
-RUN pnpm --filter @lazycraft/api deploy --prod /app/deploy
+RUN pnpm --filter @lazycraft/api deploy --prod --legacy /app/deploy
 
 FROM prod-deps AS artifacts
 COPY --from=build /app/apps/api/dist ./deploy/dist
