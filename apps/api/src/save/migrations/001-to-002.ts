@@ -1,19 +1,15 @@
 /**
- * 版本迁移脚本：从存档 v1 迁移到 v2 的示例
+ * 版本迁移脚本：从存档 v1 迁移到 v2
  *
- * 为什么需要显式迁移函数而不是"读取时按需打补丁"？
- *   存档写入频繁但是结构版本变化低频；把迁移做成纯函数 migrate()，
- *   保证每次升级都可以在单元测试里精确回放（同一个 oldData 永远产出同一份 newData）。
- *
- * 该示例演示的演化路径：v1 没有 `migrated_at` 字段，v2 给设置面板增加"迁移时间戳"。
- * 实际业务里 v2 可能是"背包从数组改成 {id, qty}[]"这类破坏性变更，
- * 总之必须保证 oldData（来自 DB 的 jsonb）→ newData（新结构 + CURRENT_SAVE_VERSION）是纯函数。
+ * v1 → v2 的结构变化：新增 `current_combat` 字段（task-18 战斗系统落地）。
+ * v1 是没有战斗概念的老存档，升级时该字段一律置 null（未在战斗中），
+ * 由后续战斗接口按需写入。migrated_at 保留"此存档被服务端正写过"的审计痕迹。
  */
 
-import type { SaveData } from '../save-shape.js';
+import type { SaveData, SaveDataV2 } from '../save-shape.js';
 
-export interface SaveDataV2 extends SaveData {
-  /** 迁移发生时的服务端时间戳（毫秒） */
+export interface SaveDataV2WithTimestamp extends SaveDataV2 {
+  /** 迁移发生时的服务端时间戳（毫秒），用于事后审计与玩家申诉排查 */
   migrated_at: number;
 }
 
@@ -23,10 +19,13 @@ export interface SaveDataV2 extends SaveData {
  * @param oldData 数据库里读到的存档原文（version=1）
  * @returns 新结构的存档；调用方负责把 saves.version 也写到 2
  */
-export function migrate(oldData: SaveData): SaveDataV2 {
+export function migrate(oldData: SaveData): SaveDataV2WithTimestamp {
   return {
     ...oldData,
-    // 用显式时间戳标记"这份存档在 v2 时被服务端正写过"，便于事后审计与玩家申诉排查
+    // 为什么直接置 null：v1 存档里没有任何战斗数据，无从推断；
+    // null 是"还没开打"的唯一正确解释，战斗接口读取时按"空闲"处理即可
+    current_combat: null,
+    // 审计时间戳：标记"这份存档在 v2 时被服务端正写过"
     migrated_at: Date.now(),
   };
 }

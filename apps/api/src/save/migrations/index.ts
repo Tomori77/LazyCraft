@@ -2,7 +2,7 @@
  * 存档版本迁移注册中心
  *
  * 为什么用一个集中的 registry 而不是让 SaveService 直接 import 具体迁移脚本？
- *   存档结构会持续增长（v2, v3, ...），让 service 显式知道自己要按顺序跑哪些 migrate()，
+ *   存档结构会持续增长（v3, v4, ...），让 service 显式知道自己要按顺序跑哪些 migrate()，
  *   而不是散落一地的 `if (version === 1) migrate1to2(data)`；
  *   后续要加 v2→v3 时，只需要在这里追加一条，service 完全不用改。
  */
@@ -18,9 +18,7 @@ export type SaveMigration = (oldData: SaveData) => SaveData;
  *
  * 当前链：[v1 -> v2]
  */
-const MIGRATIONS: ReadonlyArray<SaveMigration> = [
-  migrate1to2 as unknown as SaveMigration,
-];
+const MIGRATIONS: ReadonlyArray<SaveMigration> = [migrate1to2 as unknown as SaveMigration];
 
 /**
  * 把任意旧版本存档迁移到 CURRENT_SAVE_VERSION。

@@ -19,5 +19,10 @@ export * from './packs/core/index.js';
 // 掉落 / 词缀 / 装备生成（task-14）：刷宝系统的数据与计算
 export * from './loot/index.js';
 
+// 战斗核心 + 食物配置 + 敌人战斗属性（task-18）：服务器权威的对砍推演
+export * from './combat/index.js';
+export * from './combat/foods.js';
+export * from './data/enemies.js';
+
 // 共享核心类型契约（types.ts 是单一事实源）
 export * from './types.js';

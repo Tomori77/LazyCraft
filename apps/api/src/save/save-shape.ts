@@ -7,7 +7,7 @@
  */
 
 /** 存档版本号：每次存档结构变更必须 +1，并补齐对应的 migration 脚本 */
-export const CURRENT_SAVE_VERSION = 1;
+export const CURRENT_SAVE_VERSION = 2;
 
 /**
  * 存档中"正在执行的动作"的形状
@@ -45,14 +45,29 @@ export interface SaveData {
   settings: Record<string, unknown>;
 }
 
-/** 生成一份"空白存档"——新玩家首次 GET 时服务端懒创建的初始形态 */
-export function createEmptySaveData(): SaveData {
+/**
+ * 存档 data 字段的 v2 结构：在 v1 之上新增"当前战斗"状态。
+ *
+ * 为什么战斗状态走存档 JSONB 而不另建 combat 表：
+ *   战斗与挂机活动互斥（玩家同一时刻只能做一件事），把 current_combat
+ *   收进同一份 JSONB 让"活动 → 战斗"切换只需一次条件更新（JSON 字段原子
+ *   替换），不会出现两个子系统基于过期状态互相覆盖的并发缝隙。
+ *   字段允许缺失（v1 存档由 migrate1to2 升级为 v2 时自动补齐 null）。
+ */
+export interface SaveDataV2 extends SaveData {
+  /** 当前正在进行的战斗，null = 未在战斗中 */
+  current_combat: { enemy_id: string; started_at: number } | null;
+}
+
+/** 生成一份"空白存档"——新玩家首次 GET 时服务端懒创建的初始形态（v2） */
+export function createEmptySaveData(): SaveDataV2 {
   return {
     skills: {},
     inventory: [],
     equipment: {},
     abstract_resources: {},
     current_action: null,
+    current_combat: null,
     settings: {},
   };
 }

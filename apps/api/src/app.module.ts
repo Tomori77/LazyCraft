@@ -8,9 +8,12 @@ import { ActionModule } from './action/action.module.js';
 import { LeaderboardModule } from './leaderboard/leaderboard.module.js';
 import { AppConfigModule } from './config/config.module.js';
 import { QuestModule } from './quest/quest.module.js';
+import { BroadcastModule } from './broadcast/broadcast.module.js';
+import { MarketModule } from './market/market.module.js';
+import { CombatModule } from './combat/combat.module.js';
 
 @Module({
-  imports: [AuthModule, SaveModule, ActionModule, LeaderboardModule, AppConfigModule, QuestModule],
+  imports: [AuthModule, SaveModule, ActionModule, LeaderboardModule, AppConfigModule, QuestModule, BroadcastModule, MarketModule, CombatModule],
   controllers: [AppController],
   providers: [AppService,
     {

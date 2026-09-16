@@ -21,12 +21,14 @@ model Account {
 
 // 角色层：挂靠在账号下的游戏存档主体，后续 saves 表会关联到它
 model Player {
-  id        String   @id @default(uuid())
-  accountId String   @map("account_id")
-  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id        String          @id @default(uuid())
+  accountId String          @map("account_id")
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   name      String
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   save      Save?
+  listings  MarketListing[]
+  broadcasts Broadcast[]
 
   // 一个账号可挂多个角色（放置游戏常见多存档槽位），按 accountId 建索引保证查询效率
   @@index([accountId])
@@ -50,4 +52,90 @@ model Save {
 
   // 每个角色只能有一份当前存档（多角色靠 players 表横向扩展，不是在一个 player 下挂多份 save）
   @@map("saves")
+}
+
+/* ================================================================== */
+/* 玩家市场（task-15）                                                  */
+/* ================================================================== */
+
+// 挂单表：一行=一张市场上的卖单
+//
+// 为什么挂单必须独立成关系表而不是塞进 saves.data(jsonb)？
+//   挂单天然是跨玩家的行级资源——买家需要分页/筛选浏览所有人的单子，
+//   这种查询无法靠 jsonb 文档高效完成；同时"购买"需要从某个卖家
+//   扣钱并发货给买家，事务必须覆盖"挂单行 + 买家存档 + 卖家存档"三方，
+//   独立行才便于行锁参与事务。
+// 为什么把 seller_id 关联到 players 表而不是 accounts 表？
+//   玩家身份的游戏语义是"角色"，将来如果要做多存档槽位/赛季区分，
+//   挂单归属跟着角色走能避免"账号删了角色还在卖东西"的违和感。
+// price 列语义：单价（gold）。为什么不存总价？
+//   浏览/排序/比价只关心单价；总价 = price * quantity 永远是冗余字段，
+//   让客户端乘一遍比每次改 quantity 都同步更新两列更安全。
+model MarketListing {
+  id        String   @id @default(uuid())
+  sellerId  String   @map("seller_id")
+  seller    Player   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  itemId    String   @map("item_id")
+  quality   String   @default("common")
+  quantity  Int
+  price     Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  // 浏览市场按"上架时间倒序"扫，常规按物品过滤
+  @@index([itemId, quality, createdAt(sort: Desc)])
+  // "我的挂单"面板按卖家聚合
+  @@index([sellerId, createdAt(sort: Desc)])
+  @@map("market_listings")
+}
+
+// 价格历史：一行=某物品某品质在某日的成交聚合
+// (item_id, quality, date) 是天然业务主键，同一天合并一行——
+// 市场模块只需要看"每日均价/成交量"走势，明细级流水归 audit 领域，
+// 放 history 表只会徒增存储。
+//
+// 为什么存 total_price 而不是 avg_price：
+//   加权平均滚动更新必然要 floor/round 成整数，多笔成交后会产生累积误差；
+//   改存"当日总成交额 + 当日总成交量"，avg_price 只在读侧派生（total_price / volume），
+//   数学上是"全日精确平均"，不丢任何一分钱的信息。
+model MarketHistory {
+  id         String  @id @default(uuid())
+  itemId     String  @map("item_id")
+  quality    String  @default("common")
+  totalPrice Int     @map("total_price")
+  volume     Int
+  date       String
+
+  @@unique([itemId, quality, date])
+  @@index([itemId, quality, date(sort: Desc)])
+  @@map("market_history")
+}
+
+// task-17：全服广播
+//
+// 为什么独立一张表而不是塞进 saves.data？
+//   广播是"全服公共事件流"，天然需要跨玩家的行级查询（最新 N 条）；
+//   塞进任何单个玩家的 jsonb 都没法被其它人看到。
+//
+// 为什么把 item_id / quality 拆成列而不是统一塞 payload jsonb？
+//   前端轮播需要按 quality 取色、按 item 取显示名，列字段让 SQL/索引/
+//   未来"只看橙色以上"的过滤都不必打开 jsonb；type 列则是为将来的
+//   "赛季结算 / 世界 boss 击杀"等其它广播类型留的扩展口。
+model Broadcast {
+  id        String   @id @default(uuid())
+  /// 广播类型（'loot_drop' / 'season_end' / 'world_boss' 等，首版只用 loot_drop）
+  type      String
+  playerId  String   @map("player_id")
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  /// 物品 ID（装备广播时是模板 ID，材料广播时是 Item.id——由 type 字段决定语义）
+  itemId    String   @map("item_id")
+  /// 触发广播的品质快照；与 Item.broadcast_threshold 比较在写入侧完成，DB 层不再校验
+  quality   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // 前端轮询永远按时间倒序取最近 N 条——按 created_at 建索引让列表扫描稳定走索引
+  @@index([createdAt(sort: Desc)])
+  // 单个玩家自己的广播历史（未来"我的高光时刻"列表）按 playerId 查
+  @@index([playerId])
+  @@map("broadcasts")
 }

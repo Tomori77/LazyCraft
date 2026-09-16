@@ -55,12 +55,23 @@ body {
   min-height: 100vh;
 }
 
-/* ---------- 涓夋爮涓诲竷灞€ ---------- */
-/* 涓轰粈涔堢敤 CSS Grid 鑰屼笉鏄?Flex锛氫笁鏍忕殑宸﹀彸瀹藉害鍥哄畾銆佷腑闂村脊鎬ф敹缂╋紝
-   Grid 鐨勬ā鏉垮垪璇硶鎶婅繖绉嶆剰鍥句竴娆″０鏄庢竻妤氾紝涓嶉渶瑕佸祵濂?flex 瀹瑰櫒 */
+/* ---------- 三栏主布局 ---------- */
+/* 为什么用 CSS Grid 而不是 Flex：三栏的左右宽度固定、中间弹性收缩，
+   Grid 的模板列语法把这种意图一次声明清楚，不需要嵌套 flex 容器 */
 .layout-grid {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr var(--rightbar-width);
+  /* 不再直接 100vh：task-17 在三栏之上引入了广播条，
+     高度让位给 .game-shell 的 flex 列布局；
+     flex:1 + min-height:0 是 Grid 子项继承剩余空间的稳妥写法（避免撑破父容器） */
+  flex: 1;
+  min-height: 0;
+}
+
+/* 整页外壳 = 广播条(顶) + 三栏(下) */
+.game-shell {
+  display: flex;
+  flex-direction: column;
   height: 100vh;
 }
 
@@ -1057,6 +1068,266 @@ body {
 .leaderboard-refresh:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .leaderboard-refresh:disabled { opacity: 0.5; cursor: default; }
 
+/* ---------- 市场面板（task-15） ---------- */
+/* 与 inventory-panel 同色系保持视觉统一 */
+.market-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.market-toggle {
+  width: 100%;
+  padding: 0.4rem 0;
+  background: transparent;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.market-toggle::before {
+  content: '▸ ';
+}
+
+.market-toggle[aria-expanded='true']::before {
+  content: '▾ ';
+}
+
+.market-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.market-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.market-tab {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.market-tab.is-active {
+  background: var(--color-accent);
+  color: #111827;
+  border-color: var(--color-accent);
+}
+
+.market-filters {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.market-filters select,
+.market-field select,
+.market-field input {
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.market-btn {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.market-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.market-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.market-btn-primary {
+  background: var(--color-accent);
+  color: #111827;
+  border-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.market-btn-buy {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.market-btn-cancel {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.market-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  /* 挂单数多时不压缩库存面板：内部滚动 */
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.market-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+
+.market-row.is-expired {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.market-row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.market-item-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  flex: 1;
+}
+
+.market-quality {
+  font-size: 0.7rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+/* 品质色：与 inventory tooltip 的品质色同规则
+   common=灰、uncommon=绿、rare=蓝、epic=紫——与主流放置游戏共识一致 */
+.market-quality.is-common { color: var(--color-text-secondary); }
+.market-quality.is-uncommon { color: #4ade80; border-color: #4ade80; }
+.market-quality.is-rare { color: #60a5fa; border-color: #60a5fa; }
+.market-quality.is-epic { color: #c084fc; border-color: #c084fc; }
+
+.market-expired-tag {
+  font-size: 0.7rem;
+  padding: 0 0.35rem;
+  border: 1px dashed #f87171;
+  border-radius: 4px;
+  color: #f87171;
+}
+
+.market-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+
+.market-error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: #f87171;
+}
+
+.market-status {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.market-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.6rem;
+}
+
+.market-form-title {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-accent);
+}
+
+.market-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.market-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: var(--font-size-sm);
+}
+
+.market-label {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
+.market-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.market-summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.market-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.market-history li {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 1fr;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.market-history li:last-child {
+  border-bottom: none;
+}
+
 /* ---------- 任务面板 ---------- */
 .quest-panel {
   background: var(--color-surface);
@@ -1231,3 +1502,232 @@ body {
 }
 .replay-tutorial-btn:hover { background: rgba(74, 222, 128, 0.08); }
 .replay-tutorial-hint { margin: 0; font-size: 0.8rem; color: var(--color-text-secondary); }
+
+/* ---------- 战斗面板（task-18） ---------- */
+.combat-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem 1rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.combat-panel h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-accent);
+}
+.combat-idle-hint { margin: 0; font-size: 0.85rem; color: var(--color-text-secondary); }
+.combat-start {
+  align-self: flex-start;
+  padding: 0.4rem 0.9rem;
+  background: var(--color-accent);
+  color: #0b1220;
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.combat-start:disabled { opacity: 0.5; cursor: default; }
+.combat-stop {
+  align-self: flex-end;
+  padding: 0.4rem 0.9rem;
+  background: #f87171;
+  color: #0b1220;
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.combat-stop:disabled { opacity: 0.55; cursor: default; }
+.combat-error { margin: 0; font-size: 0.85rem; color: #f87171; }
+
+.combat-vs {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.15em;
+}
+
+.combatant-name { font-size: 0.85rem; color: var(--color-text-secondary); margin-bottom: 0.2rem; }
+.combatant-bar {
+  height: 12px;
+  background: var(--color-bg);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.combatant-fill {
+  height: 100%;
+  transform-origin: left center;
+  transition: transform 140ms ease-out;
+  will-change: transform;
+}
+.player-fill { background: linear-gradient(90deg, #4ade80, #22d3ee); }
+.enemy-fill { background: linear-gradient(90deg, #f87171, #fb923c); }
+.combatant-hp {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 受击抖动：一次出手就触发一次 200ms 的 transform 震动（视觉受击反馈）。
+   只用 transform，不触发布局——与进度条/背包 bump 同一套性能约束。 */
+.is-hit { animation: combat-hit 0.2s ease-out; }
+@keyframes combat-hit {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(-4px); }
+  60% { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+
+.combat-log-wrapper { display: flex; flex-direction: column; gap: 0.25rem; }
+.combat-log-title { margin: 0; font-size: 0.8rem; color: var(--color-text-secondary); }
+.combat-log {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  list-style: none;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  max-height: 7rem;
+  overflow-y: auto;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.combat-log-entry { color: var(--color-text); }
+.combat-log-entry.is-heal { color: var(--color-accent); }
+.combat-log-empty { color: var(--color-text-secondary); font-style: italic; }
+
+.combat-result { text-align: center; gap: 0.5rem; }
+.combat-outcome { margin: 0; font-size: 0.95rem; font-weight: 600; }
+.combat-outcome-victory { color: var(--color-accent); }
+.combat-outcome-defeat { color: #f87171; }
+.combat-exp { margin: 0; font-size: 0.85rem; color: var(--color-accent); }
+.combat-drops {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+  text-align: left;
+  display: inline-block;
+}
+.combat-food { margin: 0; font-size: 0.8rem; color: var(--color-text-secondary); }
+.combat-dismiss {
+  align-self: center;
+  padding: 0.35rem 1rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.combat-dismiss:hover { background: rgba(74, 222, 128, 0.12); }
+/* ---------- 顶部全服广播条（task-17） ---------- */
+/* 为什么用 .game-shell 内嵌而不是 fixed 定位：
+   fixed 会让广播条遮挡三栏顶部，且无法跟随窗口缩放做布局挤出；
+   flex 列内联让"广播条占的高度"在三栏高度里被扣除，避免内容遮挡。 */
+.broadcast-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.85rem;
+  /* 空态时也保留高度——避免轮播条突然出现造成版心抖动 */
+}
+
+.broadcast-prefix {
+  color: var(--color-accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.broadcast-item {
+  /* 单条就是一个可点击的整体，去掉 button 默认外观后占满剩余横向空间 */
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.broadcast-item:hover .broadcast-name { text-decoration: underline; }
+
+.broadcast-player { color: var(--color-text-secondary); }
+.broadcast-verb { color: var(--color-text); }
+.broadcast-name { font-weight: 600; }
+.broadcast-quality { font-size: 0.8rem; }
+
+/* 品质取色：与设计令牌同一组绿/灰底，品质色只点染文字，避免背景色互相打架 */
+.is-common { color: #d1d5db; }
+.is-uncommon { color: #4ade80; }
+.is-rare { color: #60a5fa; }
+.is-epic { color: #fbbf24; }
+
+/* 详情弹窗：覆盖在三栏之上，但不打断轮询/轮播的节奏 */
+.broadcast-detail {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 100;
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  min-width: 18rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.broadcast-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.broadcast-detail-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--color-accent);
+}
+.broadcast-detail-close {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+.broadcast-detail-close:hover { color: var(--color-text); }
+.broadcast-detail-body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.broadcast-detail-body > div {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.5rem;
+}
+.broadcast-detail-body dt {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+.broadcast-detail-body dd {
+  margin: 0;
+  color: var(--color-text);
+}
