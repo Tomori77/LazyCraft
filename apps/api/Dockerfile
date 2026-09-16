@@ -23,8 +23,9 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/api/package.json apps/api/
 COPY packages/shared/package.json packages/shared/
+COPY apps/api/prisma ./apps/api/prisma
 # --frozen-lockfile 确保镜像与仓库锁文件一致，避免“本地能跑线上报错”
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --dangerously-allow-all-builds
 
 # ----------------------------------------
 # 阶段 2：编译 shared + api
