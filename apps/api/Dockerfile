@@ -47,7 +47,7 @@ COPY apps/api/prisma ./apps/api/prisma
 # 新增：复制 Schema
 # pnpm deploy 会生成一个仅含生产依赖的干净目录 /app/deploy，
 # 解决 pnpm 符号链接无法用 COPY 简单搬迁的问题
-RUN pnpm --filter @lazycraft/api deploy --prod --legacy /app/deploy
+RUN pnpm --filter @lazycraft/api deploy --prod --legacy --ignore-scripts /app/deploy
 
 FROM prod-deps AS artifacts
 COPY --from=build /app/apps/api/dist ./deploy/dist
@@ -67,6 +67,7 @@ COPY --from=artifacts --chown=node:node /app/deploy ./
 # prisma CLI 运行时会在 node_modules/.bin 里查找，需保留完整目录结构
 
 USER node
+RUN npx prisma generate
 EXPOSE 3000
 
 # 启动命令由 compose 覆盖（迁移 + 启动）；此处给默认启动命令
