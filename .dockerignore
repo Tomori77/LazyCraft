@@ -1,0 +1,15 @@
+# 减少构建上下文传输：这些都是大目录或本地产物，不应进镜像
+node_modules
+**/node_modules
+**/dist
+**/coverage
+.git
+.gitignore
+*.tsbuildinfo
+.workbuddy-ai
+docs
+.env
+.env.*
+*.local
+# 前端产物由宿主机挂载进 nginx 容器，不做进镜像
+apps/web/dist

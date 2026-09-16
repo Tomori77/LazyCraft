@@ -1,0 +1,119 @@
+# ========================================
+# LazyCraft 自包含编排（方案 2：备用）
+# ========================================
+# 仅用于无 1Panel 环境时备用：完整拉起 nginx + backend + postgres + backup
+# 服务器已有 1Panel PostgreSQL 时禁止使用本文件，否则会重复占用 5432 与内存
+# 用法：docker compose -f docker-compose.full.yml up -d
+#
+# 备份方式：在 postgres 服务内挂 backup.sh，通过 pg_cron 或宿主机 crontab 执行。
+# 这里 backup 是一个常驻 sidecar（循环 sleep + 每日执行），方便无 crontab 时使用。
+
+name: lazycraft-full
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  pg_data:
+  backup_data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lazycraft-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lazycraft}
+      POSTGRES_USER: ${POSTGRES_USER:-lazycraft}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请先提供 POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-lazycraft} -d $${POSTGRES_DB:-lazycraft}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: lazycraft-api:latest
+    container_name: lazycraft-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lazycraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-lazycraft}
+      MIGRATE_DATABASE_URL: postgresql://${POSTGRES_USER:-lazycraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-lazycraft}
+      JWT_SECRET: ${JWT_SECRET:?请先提供 JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    networks:
+      - backend
+      - frontend
+    expose:
+      - "3000"
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: lazycraft-nginx
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    volumes:
+      - ./apps/web/dist:/usr/share/nginx/html:ro
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - frontend
+    mem_limit: 50m
+    depends_on:
+      - backend
+
+  backup:
+    image: postgres:16-alpine
+    container_name: lazycraft-backup
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?请先提供 POSTGRES_PASSWORD}
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: ${POSTGRES_USER:-lazycraft}
+      PG_DB: ${POSTGRES_DB:-lazycraft}
+      BACKUP_RETENTION_DAYS: 7
+    volumes:
+      - backup_data:/backup
+    networks:
+      - backend
+    mem_limit: 100m
+    # 常驻循环：每天凌晨 03:00 执行 pg_dump，保留最近 7 天
+    command:
+      - |
+        sh -c 'while true; do
+          now=$$(date +%H:%M);
+          if [ "$$now" = "03:00" ]; then
+            file=/backup/$${PG_DB}-$$(date +%Y%m%d-%H%M%S).sql.gz;
+            pg_dump -h $${PG_HOST} -p $${PG_PORT} -U $${PG_USER} -d $${PG_DB} | gzip > $$file;
+            find /backup -name "*.sql.gz" -mtime +$${BACKUP_RETENTION_DAYS} -delete;
+            sleep 3600;
+          else
+            sleep 60;
+          fi;
+        done'
+    depends_on:
+      postgres:
+        condition: service_healthy
