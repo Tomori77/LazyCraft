@@ -64,10 +64,13 @@ ENV NODE_ENV=production
 
 # 复制 pnpm deploy 打包好的生产依赖与编译产物
 COPY --from=artifacts --chown=node:node /app/deploy ./
-# prisma CLI 运行时会在 node_modules/.bin 里查找，需保留完整目录结构
+
+# 以 root 安装 prisma 并生成客户端
+USER root
+RUN npm install -g prisma@7.10.0 && \
+    cd /app && prisma generate
 
 USER node
-RUN npx prisma generate
 EXPOSE 3000
 
 # 启动命令由 compose 覆盖（迁移 + 启动）；此处给默认启动命令
