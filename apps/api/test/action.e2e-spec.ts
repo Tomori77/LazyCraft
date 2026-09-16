@@ -38,12 +38,13 @@ async function ensureSave(token: string) {
   await request(app.getHttpServer()).get('/api/save').set('Authorization', `Bearer ${token}`).expect(200);
 }
 
-/** 用 save 接口直接覆写 data（version=1 是当前版本，允许整包覆盖） */
+/** 用 save 接口直接覆写 data（存档已升级到 v2：写入时必须携带 current_combat） */
 async function writeSave(token: string, data: Record<string, unknown>) {
   await request(app.getHttpServer())
     .post('/api/save')
     .set('Authorization', `Bearer ${token}`)
-    .send({ version: 1, data })
+    // 为什么 version=2：服务端懒创建已是 v2，写路径要求客户端版本与 DB 版本严格一致
+    .send({ version: 2, data })
     .expect(201);
 }
 
@@ -150,12 +151,15 @@ describe('/api/action (e2e)', () => {
     await ensureSave(token);
 
     // 直接构造存档：给玩家 1 级烧火经验（1 级）+ 5 个枫木
+    // 为什么必须显式带 current_combat:null：v2 存档结构新增该字段；
+    // write 走整包覆盖（非合并），缺这个键会让 DB 里留下"半 v1 半 v2"的畸形存档。
     await writeSave(token, {
       skills: { firemaking: { exp: exp(1) } },
       inventory: [{ item_id: 'maple_log', quantity: 5 }],
       equipment: {},
       abstract_resources: {},
       current_action: null,
+      current_combat: null,
       settings: {},
     });
 

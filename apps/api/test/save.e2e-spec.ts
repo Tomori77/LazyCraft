@@ -40,30 +40,31 @@ describe('/api/save (e2e)', () => {
     await request(app.getHttpServer()).post('/api/save').send({}).expect(401);
   });
 
-  it('首次 GET：懒创建默认玩家与空存档，返回 v1 完整结构', async () => {
+  it('首次 GET：懒创建默认玩家与空存档，返回 v2 完整结构（含 current_combat）', async () => {
     const token = await registerAndLogin();
     const res = await request(app.getHttpServer())
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-    expect(res.body.version).toBe(1);
+    // 存档版本号已升级至 v2（新增 current_combat 字段），懒创建直接产出 v2 形态
+    expect(res.body.version).toBe(2);
     expect(res.body.data).toEqual(createEmptySaveData());
     expect(res.body.updatedAt).toBeTruthy();
   });
 
-  it('POST 写入 v1 存档 → 再 GET 读回完全一致', async () => {
+  it('POST 写入 v2 存档 → 再 GET 读回完全一致', async () => {
     const token = await registerAndLogin();
 
-    // 先读一次拿到基线版本
+    // 先读一次拿到基线版本（懒创建已是 v2）
     const first = await request(app.getHttpServer())
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(first.body.version).toBe(1);
+    expect(first.body.version).toBe(2);
 
-    // 用客户端视角构造一份 v1 完整结构
-    const v1Data = {
+    // 用客户端视角构造一份 v2 完整结构——必须带 current_combat 才是合法的 v2 data
+    const v2Data = {
       ...createEmptySaveData(),
       skills: { mining: { level: 10, exp: 1234 } },
       inventory: [{ id: 'copper_ore', qty: 99 }],
@@ -73,7 +74,7 @@ describe('/api/save (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${token}`)
-      .send({ version: 1, data: v1Data })
+      .send({ version: 2, data: v2Data })
       .expect(201);
 
     // 再读回来应与我们写入的内容完全一致——服务器权威，不做字段裁剪
@@ -81,21 +82,21 @@ describe('/api/save (e2e)', () => {
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(reread.body.version).toBe(1);
-    expect(reread.body.data).toEqual(v1Data);
+    expect(reread.body.version).toBe(2);
+    expect(reread.body.data).toEqual(v2Data);
   });
 
   it('版本号不匹配时 POST 返回 409（冲突以服务器为准，不做合并）', async () => {
     const token = await registerAndLogin();
 
-    // 先用版本 1 成功写一次
+    // 先用当前版本（v2）成功写一次
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${token}`)
-      .send({ version: 1, data: createEmptySaveData() })
+      .send({ version: 2, data: createEmptySaveData() })
       .expect(201);
 
-    // 再用过时版本号（仍然是 1，但这里通过第二次写入把 DB 里的 updatedAt 推进了，
+    // 再用过时版本号（仍然是 v2，但这里通过第二次写入把 DB 里的 updatedAt 推进了，
     // 模拟另一个客户端并发写入）——为了强制版本错位，直接用一个必然不匹配的 version=99
     await request(app.getHttpServer())
       .post('/api/save')
@@ -104,39 +105,51 @@ describe('/api/save (e2e)', () => {
       .expect(409);
   });
 
-  it('模拟 v2 迁移：写入 v1 → 直接调用迁移脚本得到期望结构 → 读出必须是迁移后结构', async () => {
+  it('模拟 v1→v2 迁移：直接用迁移函数把 v1 升到 v2，再通过 version=2 读写回', async () => {
     const token = await registerAndLogin();
 
-    // 1) 客户端写入 v1 存档，data 包含可识别字段以验证迁移保留了原内容
-    const oldV1 = {
-      ...createEmptySaveData(),
+    // 1) 懒创建（这一步把 DB 里的 save 行立成 v2），为后续版本校验铺路
+    await request(app.getHttpServer())
+      .get('/api/save')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    // 2) 在测试侧构造一份"历史上的 v1 存档"，调用迁移函数验证其产物结构：
+    //    - 保留所有原字段
+    //    - 补 current_combat: null
+    //    - 附 migrated_at 审计时间戳
+    //    为什么绕开 prisma 直接调函数：当前 DB 里没有任何途径还能塞入 version=1 的行
+    //    （read/write 都会先把版本对齐到 CURRENT_SAVE_VERSION），迁移函数本身的
+    //    单测已在 apps/api/src/save/migrations 侧覆盖；这里验证的是"迁移产物 + 服务端
+    //    读写通路"能无缝衔接。
+    const legacyV1 = {
       skills: { woodcutting: { level: 5, exp: 250 } },
+      inventory: [],
+      equipment: {},
+      abstract_resources: {},
+      current_action: null,
       settings: { audio: { muted: true } },
     };
+    const migrated = migrate1to2(legacyV1);
+    expect(migrated.migrated_at).toBeGreaterThan(0);
+    expect(migrated.skills).toEqual(legacyV1.skills);
+    expect(migrated.settings).toEqual(legacyV1.settings);
+    expect(migrated.current_combat).toBeNull();
+
+    // 3) 把迁移产物按版本=2 写回（等价于"老客户端升级到新版本后首次提交"），
+    //    再读出应该字节级一致——这证明 migrated 结构与 v2 服务端读写完全兼容。
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${token}`)
-      .send({ version: 1, data: oldV1 })
+      .send({ version: 2, data: migrated })
       .expect(201);
 
-    // 2) 通过 service 内部接口模拟"DB 里出现旧版本存档"的场景：
-    //    实际生产中 v2 上线时 CURRENT_SAVE_VERSION 会 = 2，
-    //    这里我们绕开 prisma 直接调用迁移函数，验证老数据经过迁移后具备新结构
-    const migrated = migrate1to2(oldV1);
-    expect(migrated.migrated_at).toBeGreaterThan(0);
-    expect(migrated.skills).toEqual(oldV1.skills);
-    expect(migrated.settings).toEqual(oldV1.settings);
-
-    // 3) 服务器回读——当前 CURRENT_SAVE_VERSION = 1，
-    //    所以读出来的仍然是 v1 结构，但 data 字段必须与我们写入时一致
-    //    （这一步证明：未来把 CURRENT_SAVE_VERSION 拨到 2 时，
-    //      服务端会直接返回 migrated 形态，而不是再返回 v1）
     const res = await request(app.getHttpServer())
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(res.body.version).toBe(1);
-    expect(res.body.data).toEqual(oldV1);
+    expect(res.body.version).toBe(2);
+    expect(res.body.data).toEqual(migrated);
   });
 
   it('不同账号的存档互相隔离', async () => {
@@ -149,12 +162,12 @@ describe('/api/save (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ version: 1, data: dataA })
+      .send({ version: 2, data: dataA })
       .expect(201);
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${tokenB}`)
-      .send({ version: 1, data: dataB })
+      .send({ version: 2, data: dataB })
       .expect(201);
 
     const readA = await request(app.getHttpServer())

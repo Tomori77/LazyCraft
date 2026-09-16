@@ -50,13 +50,16 @@ export interface EquipmentTemplate {
 /* 示例模板（P1 最小可玩口径）                                            */
 /* ------------------------------------------------------------------ */
 
-/** 短剑：近战最基础的武器模板，白/蓝/紫都能出，让新手村能看到颜色梯度 */
+/** 短剑：近战最基础的武器模板，白~橙都能出，让新手村能看到完整颜色梯度 */
 export const TEMPLATE_SHORT_SWORD: EquipmentTemplate = {
   id: 'short_sword',
   base_name: '短剑',
   slot: 'main_hand',
   base_stats: { attack: 2 },
-  quality_range: { min: 'common', max: 'rare' },
+  // 为什么放开到 epic：task-14 初版锁到 rare 导致整局游戏没有任何装备能产 epic，
+  // task-17 的全服广播（threshold='epic'）因此永远触发不到、无从验收；
+  // 短剑既然是"展示颜色梯度"的新手模板，放开 max 让 broadcast 链路在生产可运行。
+  quality_range: { min: 'common', max: 'epic' },
   affix_slots: { prefix: 1, suffix: 1 },
   required_level: 1,
 };

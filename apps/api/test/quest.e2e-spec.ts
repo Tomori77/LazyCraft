@@ -35,7 +35,7 @@ async function registerAndLogin() {
 const authed = (token: string, method: 'get' | 'post', path: string) =>
   request(app.getHttpServer())[method](path).set('Authorization', `Bearer ${token}`);
 
-/** 空存档 data：与 save-shape.ts 的 createEmptySaveData 保持同构，另加 quests 字段留空 */
+/** 空存档 data：与 save-shape.ts 的 createEmptySaveData 保持同构（v2 含 current_combat），另加 quests 字段留空 */
 function emptyData(extra: Record<string, unknown> = {}) {
   return {
     skills: {},
@@ -43,13 +43,15 @@ function emptyData(extra: Record<string, unknown> = {}) {
     equipment: {},
     abstract_resources: {},
     current_action: null,
+    current_combat: null,
     settings: {},
     ...extra,
   };
 }
 
 async function writeSave(token: string, data: Record<string, unknown>) {
-  await authed(token, 'post', '/api/save').send({ version: 1, data }).expect(201);
+  // 为什么 version=2：服务端懒创建已直接产出 v2，写路径要求与 DB 版本严格一致
+  await authed(token, 'post', '/api/save').send({ version: 2, data }).expect(201);
 }
 
 describe('/api/quests (e2e)', () => {
@@ -177,7 +179,8 @@ describe('/api/quests (e2e)', () => {
     const save = await authed(token, 'get', '/api/save').expect(200);
     await authed(token, 'post', '/api/save')
       .send({
-        version: 1,
+        // 为什么 version=2：存档 v1→v2 升级后，写路径要求版本与 DB 严格一致
+        version: 2,
         data: {
           ...save.body.data,
           quests: {
