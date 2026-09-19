@@ -36,7 +36,8 @@ LazyCraft/
 │   ├── web/          # @lazycraft/web  React + TypeScript + Vite
 │   └── api/          # @lazycraft/api  NestJS
 ├── packages/
-│   └── shared/       # @lazycraft/shared  前后端共享：类型 + 核心游戏逻辑
+│   ├── shared/       # @lazycraft/shared  前后端共享：类型 + 核心游戏逻辑
+│   └── icons/        # @lazycraft/icons   图标库：手绘图标目录 + 渲染 + DLC 引用解析
 ├── docs/             # 项目文档（不提交 git）
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
@@ -58,6 +59,16 @@ LazyCraft/
 使用方式：在任意子包中直接 `import { GAME_VERSION } from '@lazycraft/shared'`（依赖已在子包 `package.json` 中声明为 `workspace:*`）。
 
 > 注意：`shared` 以 Node ESM（`module: nodenext`）输出，包内相对导入必须带 `.js` 后缀。
+
+### `@lazycraft/icons`
+
+图标库（`packages/icons`）：本体手绘图标目录 + 渲染（单图/sprite）+ DLC 图标引用解析。
+与 `shared` 同为 tsc 构建的 ESM 包，同样需要先构建出 `dist/`（根 `dev` 脚本已内置）。
+
+- 本体与自带 DLC 只用手绘图标（`HAND_DRAWN_ICONS`）；
+  `game-icons.net` / `lucide` 仅供 DLC 引用，构建期抽子集内联（详见 `packages/icons/README.md`）。
+- 手绘图标全部集中在 `packages/icons/src/catalog.ts`，改一处全站生效。
+- 用法：`import { findIcon, renderSprite } from '@lazycraft/icons'`。
 
 ### `@lazycraft/web`
 

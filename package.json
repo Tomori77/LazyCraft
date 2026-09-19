@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @lazycraft/shared build && pnpm -r --parallel dev",
+    "dev": "pnpm --filter @lazycraft/shared build && pnpm --filter @lazycraft/icons build && pnpm -r --parallel dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test"

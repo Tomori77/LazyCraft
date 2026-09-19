@@ -119,6 +119,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@lazycraft/icons':
+        specifier: workspace:*
+        version: link:../../packages/icons
       '@lazycraft/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -150,6 +153,15 @@ importers:
       vite:
         specifier: ^8.3.0
         version: 8.3.0(@types/node@24.13.4)(jiti@2.7.0)
+
+  packages/icons:
+    devDependencies:
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@24.13.4)(lightningcss@1.33.0)
 
   packages/shared:
     devDependencies:
