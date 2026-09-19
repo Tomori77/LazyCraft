@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { SkillAction } from '../types.js';
 import {
+  dueTicks,
+  nextTickAt,
   OFFLINE_CAP_MS,
   StopReason,
   settle,
@@ -200,6 +202,47 @@ describe('settle', () => {
     // 材料清零，背包只剩木炭；经验在原有基础上累加
     expect(done.inventory).toEqual([{ item_id: 'charcoal', quantity: 29 }]);
     expect(done.skill_exp).toEqual({ firemaking: 100 + 29 * 5 });
+  });
+});
+
+/* ---------------------------------------------------------------- */
+/* 逐圈结算的纯时间计算                                                */
+/* ---------------------------------------------------------------- */
+
+describe('dueTicks / nextTickAt', () => {
+  const INTERVAL = 3000;
+
+  it('dueTicks：按已过时长整除间隔，不足一圈算 0', () => {
+    expect(dueTicks(1000, INTERVAL, 1000)).toBe(0);
+    expect(dueTicks(1000, INTERVAL, 3999)).toBe(0);
+    expect(dueTicks(1000, INTERVAL, 4000)).toBe(1);
+    expect(dueTicks(1000, INTERVAL, 10000)).toBe(3);
+  });
+
+  it('dueTicks：now 早于 started_at（时钟异常）时按 0 圈，不出负数', () => {
+    expect(dueTicks(10_000, INTERVAL, 5_000)).toBe(0);
+  });
+
+  it('dueTicks：有效时长封顶 24h，超过不再增圈', () => {
+    const started = 0;
+    const ticksAtCap = dueTicks(started, 1000, OFFLINE_CAP_MS);
+    expect(ticksAtCap).toBe(86_400);
+    expect(dueTicks(started, 1000, OFFLINE_CAP_MS * 2)).toBe(86_400);
+  });
+
+  it('nextTickAt：随 now 推进——第一圈末、第二圈末、第三圈末', () => {
+    const started = 0;
+    expect(nextTickAt(started, INTERVAL, 0)).toBe(INTERVAL);
+    expect(nextTickAt(started, INTERVAL, INTERVAL)).toBe(2 * INTERVAL);
+    expect(nextTickAt(started, INTERVAL, 2 * INTERVAL + 1)).toBe(3 * INTERVAL);
+  });
+
+  it('nextTickAt：封顶在 started_at + 24h，进度条不会画到 24h 之外', () => {
+    expect(nextTickAt(0, 1000, OFFLINE_CAP_MS * 5)).toBe(OFFLINE_CAP_MS);
+  });
+
+  it('nextTickAt：interval=0 也不除零（防御配置错误）', () => {
+    expect(Number.isFinite(nextTickAt(0, 0, 5000))).toBe(true);
   });
 });
 

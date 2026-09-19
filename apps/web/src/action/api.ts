@@ -33,6 +33,20 @@ export interface CurrentActionResponse {
   interval_ms?: number;
 }
 
+/**
+ * settle-due 响应（逐圈结算）。
+ *
+ * report 含本次结清的 ticks / gained / consumed / exp_gained / stop_reason；
+ * current_action 为 null 表示动作已因材料耗尽/背包满结束；
+ * next_tick_at / interval_ms 由后端按新边界一次算好，前端无需再多一次往返。
+ */
+export interface SettleDueResponse {
+  report: SettleReport;
+  current_action: ActiveActionData | null;
+  next_tick_at: number | null;
+  interval_ms: number | null;
+}
+
 export function startAction(token: string, skillId: string, actionId: string): Promise<StartActionResponse> {
   return apiPost('/action/start', { skillId, actionId }, token);
 }
@@ -43,4 +57,9 @@ export function stopAction(token: string): Promise<StopActionResponse> {
 
 export function fetchCurrentAction(token: string): Promise<CurrentActionResponse> {
   return apiGet('/action/current', token);
+}
+
+/** 结清截至现在的所有到期整圈，返回本次产出；action 继续时 current_action 非 null */
+export function settleDueAction(token: string): Promise<SettleDueResponse> {
+  return apiPost('/action/settle-due', {}, token);
 }

@@ -133,6 +133,38 @@ export const OFFLINE_CAP_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_STACK_MAX = 999;
 
 /* ------------------------------------------------------------------ */
+/* 逐圈结算的纯时间计算（服务器权威，前端只用来演出）                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 截至 now 已到期的完整圈数。
+ *
+ * 为什么把"有效经过时长"封顶在 24h？
+ *   与 settle() 同一口径：离线收益硬上限，超过部分不计圈。
+ *   now < started_at（时钟异常）时按 0 处理，绝不产生负圈数。
+ */
+export function dueTicks(startedAt: number, intervalMs: number, now: number): number {
+  const interval = Math.max(1, intervalMs); // 防御：interval=0 会直接除零
+  const elapsed = Math.max(0, Math.min(now - startedAt, OFFLINE_CAP_MS));
+  return Math.floor(elapsed / interval);
+}
+
+/**
+ * 下一个"圈末"时刻：started_at + (已完成圈数 + 1) × interval。
+ *
+ * 为什么要随 now 推进而不是恒取 started_at + interval？
+ *   started_at 在一次结算后会向后推进（见 action.service.settleDue），
+ *   前端进度条按 next_tick_at - interval 定位当前圈起点；
+ *   若恒返回第一次的圈末，进度条走满后永远无法进入下一圈（P1-1 请求风暴根因）。
+ *   返回值同样封顶在 started_at + 24h，避免前端把进度条画到 24h 之外。
+ */
+export function nextTickAt(startedAt: number, intervalMs: number, now: number): number {
+  const interval = Math.max(1, intervalMs);
+  const raw = startedAt + (dueTicks(startedAt, intervalMs, now) + 1) * interval;
+  return Math.min(raw, startedAt + OFFLINE_CAP_MS);
+}
+
+/* ------------------------------------------------------------------ */
 /* 内部工具（纯函数，不导出）                                              */
 /* ------------------------------------------------------------------ */
 

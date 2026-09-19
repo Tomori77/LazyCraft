@@ -26,6 +26,15 @@ export class ActionController {
     return this.actionService.stop(user.id);
   }
 
+  /**
+   * 结清截至现在的所有到期整圈并保持动作继续（逐圈产出）。
+   * 与 stop 分离：stop 是"玩家主动结束"，settle-due 是"服务器例行收圈"。
+   */
+  @Post('settle-due')
+  settleDue(@CurrentUser() user: { id: string }) {
+    return this.actionService.settleDue(user.id);
+  }
+
   @Get('current')
   current(@CurrentUser() user: { id: string }) {
     return this.actionService.current(user.id);

@@ -6,9 +6,12 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../lib/prisma-client/client.js';
 import {
+  dueTicks,
   levelFromExp,
   mergeSettledStacks,
+  nextTickAt,
   settle,
+  StopReason,
   type CarriedItem,
   type ItemStack,
   type PlayerState,
@@ -17,7 +20,6 @@ import {
   type SkillAction,
   type SettleReport,
   type StackItemInstance,
-  OFFLINE_CAP_MS,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
 import { ContentService } from '../content/content.service.js';
@@ -59,6 +61,19 @@ export type SettlementListener = (
   accountId: string,
   gained: SettleReport['gained'],
 ) => void | Promise<void>;
+
+/** 空结算报告：settle-due 在"无到期圈/无活动"时的统一返回，前端可当无产出处理 */
+function emptyReport(): SettleReport {
+  return {
+    effective_seconds: 0,
+    ticks: 0,
+    gained: [],
+    consumed: [],
+    lost: [],
+    exp_gained: {},
+    stop_reason: StopReason.NoTicks,
+  };
+}
 
 @Injectable()
 export class ActionService {
@@ -161,7 +176,8 @@ export class ActionService {
 
     return {
       current_action: nextData.current_action,
-      next_tick_at: started_at + action.interval_ms,
+      // 刚开始 = 0 圈已完成，nextTickAt 即 started_at + interval（走 shared 同一口径）
+      next_tick_at: nextTickAt(started_at, action.interval_ms, started_at),
     };
   }
 
@@ -217,8 +233,11 @@ export class ActionService {
   }
 
   /**
-   * 查询当前活动 + 预计下次结算时刻。
-   * 空闲时 current 为 null；next_tick_at 封顶在 started_at + 24h（离线硬上限）。
+   * 查询当前活动 + 预计下次结算时刻（**只读，不写存档**）。
+   *
+   * next_tick_at 必须随 now 推进：= started_at + (已完成圈数 + 1) × interval。
+   * 若恒取 started_at + interval，前端进度条走满后进不了下一圈（P1-1 的根因），
+   * 且无法与"已结算的圈"对齐。计算收敛在 shared 的 nextTickAt()，前后端同源。
    */
   async current(accountId: string) {
     const { data } = await this.saveService.read(accountId);
@@ -227,12 +246,104 @@ export class ActionService {
       return { current_action: null };
     }
     const action = this.findActionOrThrow(current.action_id);
+    const now = Date.now();
     return {
       current_action: current,
-      next_tick_at: Math.min(
-        current.started_at + action.interval_ms,
-        current.started_at + OFFLINE_CAP_MS,
-      ),
+      next_tick_at: nextTickAt(current.started_at, action.interval_ms, now),
+      interval_ms: action.interval_ms,
+    };
+  }
+
+  /**
+   * 结清"截至现在的所有到期整圈"，并保持动作继续（梅尔沃式逐圈产出）。
+   *
+   * 与 stop 的区别：
+   *   - stop 结清后 current_action 置空；
+   *   - settleDue 结清后把已结算的圈从 started_at 上推进掉（started_at += ticks × interval），
+   *     动作 id/skill 不变，下一圈从新边界继续，不会重复结算同一批圈。
+   *
+   * 为什么用条件写入而不是普通 update？
+   *   两个标签页可能同时到达圈末，都会算出同一批 ticks；把"期望的原 current_action
+   *   （含原 started_at）"写进 WHERE，只有一个能成功，另一个 count=0 → 409，
+   *   防止同一批圈被发放两次。
+   */
+  async settleDue(accountId: string) {
+    const { data } = await this.saveService.read(accountId);
+    const current = data.current_action as ActiveActionData | null;
+    const now = Date.now();
+
+    // 没有进行中的活动：返回空报告而不是 409。
+    // 为什么？前端"圈末触发结算"与"玩家恰好在此期间 stop"会天然竞争，
+    // 这时返回空报告让前端平滑收敛到空闲，比报错更符合幂等语义。
+    if (!current) {
+      return {
+        report: emptyReport(),
+        current_action: null,
+        next_tick_at: null,
+        interval_ms: null,
+      };
+    }
+
+    const action = this.findActionOrThrow(current.action_id);
+    const ticks = dueTicks(current.started_at, action.interval_ms, now);
+
+    // 尚未走满一圈：不改存档，原样回当前状态供前端续走
+    if (ticks === 0) {
+      return {
+        report: emptyReport(),
+        current_action: current,
+        next_tick_at: nextTickAt(current.started_at, action.interval_ms, now),
+        interval_ms: action.interval_ms,
+      };
+    }
+
+    // 传 now = started_at + ticks * interval：让引擎恰好结算 ticks 圈，
+    // 既不会多算（now 已到的不足一圈），也不会漏算
+    const settledAt = current.started_at + ticks * action.interval_ms;
+    const { player, report } = settle({
+      player: this.toPlayerState(data),
+      action,
+      now: settledAt,
+    });
+
+    // 是否继续：引擎因材料耗尽/背包满提前停，或实际圈数少于到期圈数 → 动作结束
+    const stopped =
+      report.stop_reason === StopReason.InputExhausted ||
+      report.stop_reason === StopReason.InventoryFull ||
+      report.ticks < ticks;
+
+    const inventory = mergeSettledStacks(
+      Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+      player.inventory as SettledStack[],
+    );
+
+    const nextCurrent: ActiveActionData | null = stopped
+      ? null
+      : { ...current, started_at: current.started_at + ticks * action.interval_ms };
+
+    const nextData: SaveData = {
+      ...data,
+      inventory,
+      skills: this.mergeExpIntoSkills(data, player.skill_exp),
+      current_action: nextCurrent,
+    };
+    await this.compareAndSwapCurrentAction(accountId, current, nextData);
+
+    // 监听器行为与 stop 一致：把本次真实产出上报（任务模块累计 craft_item）
+    for (const listener of this.settlementListeners) {
+      try {
+        await listener(accountId, report.gained);
+      } catch {
+        // 忽略监听器内部错误
+      }
+    }
+
+    return {
+      report,
+      current_action: nextCurrent,
+      next_tick_at: nextCurrent
+        ? nextTickAt(nextCurrent.started_at, action.interval_ms, now)
+        : null,
       interval_ms: action.interval_ms,
     };
   }

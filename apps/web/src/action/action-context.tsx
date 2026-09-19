@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState, createContext, createElement, useContext, type ReactNode } from 'react';
 import { useAuth } from '../auth/auth.tsx';
-import { fetchCurrentAction, stopAction as requestStop, startAction as requestStart } from './api.ts';
+import {
+  fetchCurrentAction,
+  settleDueAction,
+  stopAction as requestStop,
+  startAction as requestStart,
+} from './api.ts';
 import type { ActiveActionData } from './api.ts';
+import type { StopReason } from '@lazycraft/shared';
 
 /**
  * 活动状态管理（task-11 中枢，task-27 起只保留"进行中活动"这一职责）
@@ -44,10 +50,15 @@ interface ActionContextValue {
   pending: boolean;
   /** 最近一次错误消息（null = 无错） */
   error: string | null;
+  /**
+   * 自动停止原因（材料耗尽 / 背包满）；手动停止或重新开始后清空。
+   * 供工作面板提示"为什么停了"，null = 没有需要提示的自动停止。
+   */
+  stopReason: StopReason | null;
   /** 进度条 0..1 实时值：rAF 驱动，不是 state 累加 */
   progressRef: React.MutableRefObject<number>;
   /**
-   * 结算完成信号：每次 stop 成功 +1。
+   * 结算完成信号：每次逐圈结算/停止有产物时 +1。
    *
    * 为什么用自增 nonce 而不是回调注册？
    *   PlayerProvider 在 ActionProvider 之下，不能被子组件反向注册；
@@ -77,6 +88,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   const [intervalMs, setIntervalMs] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stopReason, setStopReason] = useState<StopReason | null>(null);
   const [settleNonce, setSettleNonce] = useState(0);
 
   /**
@@ -91,6 +103,21 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   const syncTimerRef = useRef<number | null>(null);
   /** 最近一次 sync 的时间戳（用于避免短时间内重复同步） */
   const lastSyncAtRef = useRef<number>(0);
+  /**
+   * 已经触发过结算的"圈末边界"（next_tick_at 值）。
+   *
+   * 为什么用边界值而不是布尔？
+   *   rAF 在 fraction >= 1 后仍会持续回调（每帧 ~60 次），没有守卫就会每帧发
+   *   settle-due → 请求风暴（P1-1）。用"已触发过的边界值"作守卫：
+   *   结算成功后服务器把 next_tick_at 推进到下一个边界，条件自然再次成立，
+   *   于是每圈恰好触发一次，不依赖 effect 重建时机。
+   *   失败时清空，允许下一帧重试（配合 retryAfterRef 退避，避免风暴）。
+   */
+  const firedBoundaryRef = useRef<number | null>(null);
+  /** settle-due 是否正在飞行中：避免响应回来前同一圈重复触发 */
+  const settlingRef = useRef(false);
+  /** 失败退避截止时间戳：失败后 1s 内不再重试，避免每帧重试演成新的风暴 */
+  const retryAfterRef = useRef(0);
 
   /* -------- 内部：仅同步 current_action（不打存档） -------- */
   const syncActive = useCallback(async () => {
@@ -108,11 +135,68 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     }
   }, [token]);
 
+  /**
+   * 内部：结清截至现在的所有到期整圈（每走满一圈由 rAF 触发一次）。
+   *
+   * 为什么失败不覆盖守卫（firedBoundaryRef）？
+   *   失败后守卫保持未设状态，下一帧会再次尝试；配合 retryAfterRef 退避，
+   *   既不会永久卡在满格，也不会演成每帧一次的新风暴。
+   * 为什么只在有产物时 bump settleNonce？
+   *   无产出的空圈不该触发 PlayerProvider 重拉 /api/player，省一次往返。
+   */
+  const settleDue = useCallback(async (boundary: number) => {
+    if (!token || settlingRef.current) return;
+    settlingRef.current = true;
+    try {
+      const res = await settleDueAction(token);
+      lastSyncAtRef.current = Date.now();
+      const gainedExp = Object.keys(res.report.exp_gained ?? {}).length > 0;
+      const produced = res.report.gained.length > 0 || gainedExp || res.report.lost.length > 0;
+
+      if (res.current_action) {
+        setActive(res.current_action);
+        setNextTickAt(res.next_tick_at);
+        setIntervalMs(res.interval_ms);
+        if (res.report.ticks > 0) {
+          // 结清成功：把守卫固定到本次边界。服务器返回的新 next_tick_at
+          // 必然大于它，下一圈会再次满足触发条件；本次边界永不重复触发。
+          firedBoundaryRef.current = boundary;
+          retryAfterRef.current = 0;
+        } else {
+          // ticks=0（客户端时钟略快于服务器）：不清守卫，退避 0.5s 后再试
+          retryAfterRef.current = Date.now() + 500;
+        }
+      } else {
+        // 动作已结束：清空状态。仅材料耗尽/背包满才是"需要提示的自动停止"，
+        // 其余（手动停止竞态、无活动）静默收敛，避免误报。
+        setActive(null);
+        setNextTickAt(null);
+        setIntervalMs(null);
+        if (
+          res.report.stop_reason === 'input_exhausted' ||
+          res.report.stop_reason === 'inventory_full'
+        ) {
+          setStopReason(res.report.stop_reason);
+        }
+        progressRef.current = 0;
+        firedBoundaryRef.current = boundary;
+        retryAfterRef.current = 0;
+      }
+      if (produced) setSettleNonce((n) => n + 1);
+    } catch {
+      // 失败：退避 1s 后允许重试，且不覆盖守卫（下一帧再试），避免卡死或风暴
+      retryAfterRef.current = Date.now() + 1000;
+    } finally {
+      settlingRef.current = false;
+    }
+  }, [token]);
+
   /* -------- 对外：开始活动 -------- */
   const start = useCallback(async (skillId: string, actionId: string) => {
     if (!token) return;
     setPending(true);
     setError(null);
+    setStopReason(null);
     try {
       const res = await requestStart(token, skillId, actionId);
       // 服务器已写入 current_action；前端立刻进入"进行中"状态，
@@ -123,6 +207,8 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       const cur = await fetchCurrentAction(token);
       setIntervalMs(cur.interval_ms ?? null);
       progressRef.current = 0;
+      firedBoundaryRef.current = null;
+      retryAfterRef.current = 0;
       lastSyncAtRef.current = Date.now();
     } catch (e) {
       setError(e instanceof Error ? e.message : '操作失败');
@@ -144,7 +230,10 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setActive(null);
       setNextTickAt(null);
       setIntervalMs(null);
+      setStopReason(null);
       progressRef.current = 0;
+      firedBoundaryRef.current = null;
+      retryAfterRef.current = 0;
       setSettleNonce((n) => n + 1);
       lastSyncAtRef.current = Date.now();
     } catch (e) {
@@ -163,7 +252,10 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setNextTickAt(null);
       setIntervalMs(null);
       setError(null);
+      setStopReason(null);
       progressRef.current = 0;
+      firedBoundaryRef.current = null;
+      retryAfterRef.current = 0;
       return;
     }
     // 登录：拉一次 current 覆盖本地状态；失败不阻塞（下次 sync 再试）
@@ -182,18 +274,21 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     }
 
     const tickMs = intervalMs;
-    // 当前 tick 的起点：next_tick_at - interval；动画从 0 走到 1
+    // 当前 tick 的起点与终点：终点就是服务器下发的 next_tick_at
     const tickStart = nextTickAt - tickMs;
+    const boundary = nextTickAt;
 
     const step = () => {
       const now = Date.now();
       const fraction = clamp01((now - tickStart) / tickMs);
       progressRef.current = fraction;
-      if (fraction >= 1) {
-        // 到达 tick 末尾：本地不重复滚动，立即向服务器要最新状态。
+      if (fraction >= 1 && Date.now() >= retryAfterRef.current) {
+        // 到达本圈末尾：只有"本边界尚未触发过、且不在飞行中"时才发一次结算。
         // 为什么不在前端自己 +interval？本地动画只是演出，"真实进行到第几个 tick"
-        // 由 current 接口决定；前端自己推演会在标签页隐藏/恢复后产生幻觉。
-        syncActive().catch(() => undefined);
+        // 由服务器结算决定；前端自己推演会在标签页隐藏/恢复后产生幻觉。
+        if (firedBoundaryRef.current !== boundary && !settlingRef.current) {
+          settleDue(boundary).catch(() => undefined);
+        }
       }
       rafHandleRef.current = requestAnimationFrame(step);
     };
@@ -205,7 +300,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
         rafHandleRef.current = null;
       }
     };
-  }, [active, nextTickAt, intervalMs, syncActive]);
+  }, [active, nextTickAt, intervalMs, settleDue]);
 
   /* -------- 20s 对时：只有 active 时才需要 -------- */
   useEffect(() => {
@@ -233,6 +328,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     intervalMs,
     pending,
     error,
+    stopReason,
     progressRef,
     settleNonce,
     start,

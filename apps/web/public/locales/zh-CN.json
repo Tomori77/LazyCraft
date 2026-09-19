@@ -78,6 +78,8 @@
   "work.card.exp": "经验",
   "work.card.yield": "产出",
   "work.drop_preview": "掉落预览",
+  "work.auto_stop.input_exhausted": "材料已耗尽，工作自动停止",
+  "work.auto_stop.inventory_full": "背包已满，工作自动停止",
   "error.action_failed": "操作失败",
   "common.seconds": "秒",
   "common.loading": "加载中…",

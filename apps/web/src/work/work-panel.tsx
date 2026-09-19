@@ -19,7 +19,7 @@ export function WorkPanel({ selectedSkillId }: WorkPanelProps) {
   const { t } = useT();
   const { content } = useContent();
   const { player } = usePlayer();
-  const { active, pending, progressRef, start, stop } = useAction();
+  const { active, pending, progressRef, start, stop, stopReason } = useAction();
 
   const currentSkill = useMemo(
     () => content?.skills?.find((s) => s.id === selectedSkillId) ?? null,
@@ -195,6 +195,14 @@ export function WorkPanel({ selectedSkillId }: WorkPanelProps) {
                 </span>
               ))}
             </div>
+          )}
+
+          {/* 自动停止提示：材料耗尽 / 背包满由 settle-due 判定并回传 */}
+          {stopReason === 'input_exhausted' && (
+            <p className="work-panel-error">{t('work.auto_stop.input_exhausted')}</p>
+          )}
+          {stopReason === 'inventory_full' && (
+            <p className="work-panel-error">{t('work.auto_stop.inventory_full')}</p>
           )}
 
           {localError && <p className="work-panel-error">{localError}</p>}

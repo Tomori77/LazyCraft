@@ -78,6 +78,8 @@
   "work.card.exp": "XP",
   "work.card.yield": "Yield",
   "work.drop_preview": "Drop Preview",
+  "work.auto_stop.input_exhausted": "Out of materials, work stopped automatically",
+  "work.auto_stop.inventory_full": "Inventory full, work stopped automatically",
   "error.action_failed": "Action failed",
   "common.seconds": "s",
   "common.loading": "Loading…",
