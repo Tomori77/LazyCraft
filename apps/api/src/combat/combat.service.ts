@@ -13,10 +13,12 @@ import {
   newUid,
   playerStats,
   simulateCombat,
+  sumEquipmentStats,
   toEquipmentInstance,
   type CarriedItem,
   type CombatReport,
   type Enemy,
+  type EquipmentInstance,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
 import { BroadcastService } from '../broadcast/broadcast.service.js';
@@ -154,17 +156,18 @@ export class CombatService {
   /**
    * 从存档构造 simulateCombat 的入参并跑一次完整推演。
    *
-   * 装备属性来源：当前 P0 存档里 equipment 槽位还没有实际消费方
-   * （战斗模块是第一个写入方），因此这里读取的是空兜底对象——
-   * 等装备穿戴功能（后续任务）落地后，这一段会读取 data.equipment 聚合 final_stats。
+   * 装备属性口径与 /api/player 将来的汇总完全一致——两边都直接调
+   * shared 的 sumEquipmentStats，不在 API 层另写一份相加逻辑，
+   * 避免"面板显示 +3 攻、战斗里只 +1"的双事实源。
    */
   private simulate(data: SaveData | SaveDataV2, enemy: Enemy, startedAt: number, now: number): CombatReport {
     const skills = (data.skills ?? {}) as Record<string, { exp?: number } | undefined>;
     const attackExp = typeof skills['attack']?.exp === 'number' ? (skills['attack']!.exp as number) : 0;
 
-    // P0：存档里暂时没有"已穿戴装备"切片——装备槽位由任务链的后续任务写入；
-    // 战斗模块先把读取点留出来，确保存档 schema 就位后只需改这一处
-    const equipmentStats = { attack: 0, defense: 0, hp: 0 };
+    // 只把"对象且带 final_stats"的槽位交给聚合函数：存档可能被手改，
+    // 混入 null / 字符串 / 缺字段的脏数据时按空槽处理，不让一次战斗结算整段崩掉
+    const equipped = this.readEquipped(data);
+    const equipmentStats = sumEquipmentStats(equipped);
 
     // 食物存量：只遍历堆叠实例，把"在 FOODS 表里登记过的物品"聚成 food map
     const inventory = Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [];
@@ -262,6 +265,30 @@ export class CombatService {
     const enemy = findEnemyById(enemyId);
     if (!enemy) throw new NotFoundException(`敌人不存在: ${enemyId}`);
     return enemy;
+  }
+
+  /**
+   * 读已穿戴装备并归一化为聚合函数可消费的数组。
+   *
+   * 为什么在 API 层先过滤而不是依赖 sumEquipmentStats？
+   *   后者按契约只容忍 null 槽；这里面对的是 JSONB 里可能被手改的数据，
+   *   非对象 / 缺 final_stats 的条目必须先剔除，保证脏存档不炸结算。
+   */
+  private readEquipped(data: SaveData | SaveDataV2): ReadonlyArray<EquipmentInstance | null> {
+    const raw = data.equipment;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+    const values: Array<EquipmentInstance | null> = [];
+    for (const slot of Object.values(raw as Record<string, unknown>)) {
+      if (
+        slot &&
+        typeof slot === 'object' &&
+        typeof (slot as EquipmentInstance).final_stats === 'object' &&
+        (slot as EquipmentInstance).final_stats !== null
+      ) {
+        values.push(slot as EquipmentInstance);
+      }
+    }
+    return values;
   }
 
   /** 从存档 data 读 current_combat；v1 老数据没有该字段时按 null 兜底 */
