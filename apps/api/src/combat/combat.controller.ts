@@ -2,7 +2,7 @@ import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { CombatService } from './combat.service.js';
-import type { StartCombatDto } from './dto/combat.dto.js';
+import { StartCombatDto } from './dto/combat.dto.js';
 
 /**
  * 战斗 HTTP 接口

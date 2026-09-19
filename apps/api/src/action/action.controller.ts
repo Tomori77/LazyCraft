@@ -2,7 +2,7 @@ import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { ActionService } from './action.service.js';
-import type { StartActionDto } from './dto/action.dto.js';
+import { StartActionDto } from './dto/action.dto.js';
 
 /**
  * 活动（挂机动作）HTTP 接口
