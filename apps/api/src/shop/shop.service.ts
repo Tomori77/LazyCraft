@@ -6,10 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../lib/prisma-client/client.js';
+import type { ShopEntryRow } from '../lib/prisma-client/client.js';
 import {
   DEFAULT_STACK_MAX,
   ITEMS,
-  SHOP_ENTRIES,
   addToContainer,
   canAddToContainer,
   generateEquipment,
@@ -19,6 +19,7 @@ import {
   toEquipmentInstance,
   type CarriedItem,
   type ContainerAdd,
+  type Quality,
   type ShopEntry,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
@@ -29,8 +30,11 @@ import {
   type SaveDataV3,
 } from '../save/save-shape.js';
 
-/** 玩家等级口径：攻击技能等级（与 inventory / combat 一致，见 inventory.service.ts） */
+/** 玩家等级口径：攻击技能等级（与 inventory / combat 一致） */
 const PLAYER_LEVEL_SKILL = 'attack';
+
+/** 无限库存哨兵：与 DB 的 CHECK(stock >= -1) 及 shared 注释保持一致 */
+const INFINITE_STOCK = -1;
 
 interface SkillsMap {
   [skillId: string]: { exp?: number } | undefined;
@@ -59,27 +63,58 @@ function playerLevel(data: SaveDataV3): number {
 }
 
 /** 条目出货品质：缺省 common */
-function entryQuality(entry: ShopEntry) {
+function entryQuality(entry: ShopEntry): Quality {
   return entry.quality ?? 'common';
 }
 
+/** DB 行 → 对外条目形状（snake_case，与 task-24 的 GET /api/shop 契约完全一致） */
+function toShopEntry(row: ShopEntryRow): ShopEntry {
+  return {
+    id: row.id,
+    kind: row.kind as ShopEntry['kind'],
+    ...(row.itemId !== null ? { item_id: row.itemId } : {}),
+    ...(row.templateId !== null ? { template_id: row.templateId } : {}),
+    ...(row.quality !== null ? { quality: row.quality as Quality } : {}),
+    buy_price: row.buyPrice,
+    ...(row.sellPrice !== null ? { sell_price: row.sellPrice } : {}),
+    ...(row.requiredLevel !== null ? { required_level: row.requiredLevel } : {}),
+    stock: row.stock,
+  };
+}
+
 /**
- * 商店服务（task-24）
+ * 品质匹配条件：条目 quality 为 NULL 等价于 'common'。
  *
- * 商店 = 系统 NPC 的固定价目表，只做"金币 ↔ 物品"；与玩家市场（/api/market）完全分离，
- * 抽象资源与物品资源不得互相折算（铁律）。写路径与 inventory 同构：
- * Prisma.$transaction + 行锁 + 基于最新存档整体覆写。
+ * 为什么不能直接 `quality: q`？
+ *   seed 里的物品条目不带 quality（NULL = 默认品质），而堆叠实例缺省也是 common；
+ *   若只精确匹配字符串，NULL 行永远匹配不到，出售会误判"不可出售"。
+ */
+function matchQuality(q: Quality): Prisma.ShopEntryRowWhereInput {
+  return q === 'common'
+    ? { OR: [{ quality: 'common' }, { quality: null }] }
+    : { quality: q };
+}
+
+/**
+ * 商店服务（task-24b）
  *
- * 库存取舍：`stock` 为 -1 表示无限；有限库存**不持久化**（当前无 shop 表），
- * 仅作为"单次购买上限 + 静态展示"。这样字段不是死配置，又不必为一个纯展示维度新建表；
- * 需要真正扣减库存时再引入 shop_stock 表即可，接口形状不变。
+ * 商店 = 系统 NPC 的固定价目表，只做"金币 ↔ 物品"；与玩家市场（/api/market）完全分离。
+ * 条目已全部入库（`shop_entries`），库存为**全服共享**、买入真实扣减。
+ *
+ * 并发模型：
+ *   buy 在 Prisma.$transaction 内先锁玩家存档（save-tx 的 mustLockSave），
+ *   再用"带条件的 updateMany"原子扣库存——`WHERE stock >= quantity`
+ *   让 Postgres 对该行加锁并在锁释放后重新求值条件，两个买家抢最后一件时
+ *   只有一个 count=1，另一个 count=0 转 403。这比"先 SELECT 再 UPDATE"
+ *   少一个 TOCTOU 窗口，也省掉了 raw SQL 的 SELECT ... FOR UPDATE。
+ *   stock = -1（无限）不参与扣减，故无需锁。
  */
 @Injectable()
 export class ShopService {
   constructor(private readonly saveService: SaveService) {}
 
   /**
-   * 列出商店条目，并带上"买得起 / 已解锁"（基于当前玩家存档）。
+   * 列出**已上架**条目，并带上"买得起 / 已解锁"（基于当前玩家存档）。
    *
    * 直接返回数组而非 { gold, entries }：条目本身可携带派生标志，
    * 前端拿到的就是"能渲染的列表"，不必再拆一层；金币由 /api/player 提供。
@@ -90,28 +125,34 @@ export class ShopService {
     const gold = readGold(snapshot);
     const level = playerLevel(snapshot);
 
-    return SHOP_ENTRIES.map((entry) => ({
-      ...entry,
-      affordable: gold >= entry.buy_price,
-      unlocked: level >= (entry.required_level ?? 1),
-    }));
+    const rows = await this.saveService.prisma.shopEntryRow.findMany({
+      where: { listed: true },
+      // 稳定排序：同 sort_order 时按 id，避免分页/刷新顺序抖动
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    });
+
+    return rows.map((row) => {
+      const entry = toShopEntry(row);
+      return {
+        ...entry,
+        affordable: gold >= entry.buy_price,
+        unlocked: level >= (entry.required_level ?? 1),
+      };
+    });
   }
 
-  /** 购买：扣金币 → 发货入背包（容量不足拒绝） */
+  /** 购买：扣金币 → 真实扣减全服库存 → 发货入背包（容量不足拒绝） */
   async buy(accountId: string, entryId: string, quantity: number) {
-    const entry = SHOP_ENTRIES.find((e) => e.id === entryId);
-    if (!entry) throw new NotFoundException(`商店条目不存在: ${entryId}`);
-
-    // 有限库存视为单次购买上限（不持久化，见类注释）
-    if (entry.stock >= 0 && quantity > entry.stock) {
-      throw new ForbiddenException(`库存不足：仅剩 ${entry.stock}`);
-    }
-
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
       const player = await mustGetPlayer(tx, accountId);
       const save = await mustLockSave(tx, player.id);
       const data = save.data as unknown as SaveDataV3;
+
+      const row = await tx.shopEntryRow.findUnique({ where: { id: entryId } });
+      // 未上架对买家等同不存在，避免"下架了还能买到"的漏洞
+      if (!row || !row.listed) throw new NotFoundException(`商店条目不存在: ${entryId}`);
+      const entry = toShopEntry(row);
 
       const level = playerLevel(data);
       if (level < (entry.required_level ?? 1)) {
@@ -132,6 +173,17 @@ export class ShopService {
         throw new ForbiddenException('背包容量不足，无法购买');
       }
 
+      // 原子扣库存：条件不满足（被并发买走）则 count=0 → 403
+      if (row.stock !== INFINITE_STOCK) {
+        const dec = await tx.shopEntryRow.updateMany({
+          where: { id: row.id, stock: { gte: quantity } },
+          data: { stock: { decrement: quantity } },
+        });
+        if (dec.count === 0) {
+          throw new ForbiddenException(`库存不足：仅剩 ${row.stock}`);
+        }
+      }
+
       let next: SaveDataV3 = {
         ...data,
         inventory: addToContainer(inventory, additions, newUid, stackMaxOf),
@@ -142,11 +194,13 @@ export class ShopService {
         where: { id: save.id },
         data: { data: next as unknown as Prisma.InputJsonValue },
       });
-      return { entry_id: entry.id, quantity, cost, gold: gold - cost };
+
+      const stock = row.stock === INFINITE_STOCK ? INFINITE_STOCK : row.stock - quantity;
+      return { entry_id: entry.id, quantity, cost, gold: gold - cost, stock };
     });
   }
 
-  /** 出售：从背包找 uid → 按条目 sell_price 回收金币；无 sell_price 不可出售 */
+  /** 出售：从背包找 uid → 按条目 sell_price 回收金币；**不回补库存** */
   async sell(accountId: string, uid: string, quantity: number) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
@@ -159,8 +213,11 @@ export class ShopService {
       if (index < 0) throw new NotFoundException(`物品不存在: ${uid}`);
       const item = inventory[index];
 
-      const entry = this.findSellableEntry(item);
-      if (!entry || entry.sell_price === undefined) {
+      const row = await tx.shopEntryRow.findFirst({
+        where: this.sellWhereFor(item),
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      });
+      if (!row || row.sellPrice === null) {
         throw new ForbiddenException('该物品不可出售');
       }
 
@@ -184,7 +241,7 @@ export class ShopService {
       }
 
       const gold = readGold(data);
-      const gained = entry.sell_price * quantity;
+      const gained = row.sellPrice * quantity;
       let next: SaveDataV3 = { ...data, inventory: nextInventory };
       next = writeGold(next, gold + gained) as SaveDataV3;
 
@@ -192,7 +249,7 @@ export class ShopService {
         where: { id: save.id },
         data: { data: next as unknown as Prisma.InputJsonValue },
       });
-      return { uid, entry_id: entry.id, quantity, gained, gold: gold + gained };
+      return { uid, entry_id: row.id, quantity, gained, gold: gold + gained };
     });
   }
 
@@ -243,24 +300,23 @@ export class ShopService {
     return additions;
   }
 
-  /** 找出能回收该物品的商店条目：按 kind + 引用 id + 品质精确匹配 */
-  private findSellableEntry(item: CarriedItem): ShopEntry | undefined {
+  /** 找出能回收该物品的商店条目：按 kind + 引用 id + 品质 + 有 sell_price + 已上架 */
+  private sellWhereFor(item: CarriedItem): Prisma.ShopEntryRowWhereInput {
     if (item.kind === 'equipment') {
-      return SHOP_ENTRIES.find(
-        (e) =>
-          e.kind === 'equipment' &&
-          e.template_id === item.template_id &&
-          entryQuality(e) === item.quality &&
-          e.sell_price !== undefined,
-      );
+      return {
+        kind: 'equipment',
+        templateId: item.template_id,
+        listed: true,
+        sellPrice: { not: null },
+        ...matchQuality(item.quality),
+      };
     }
-    const quality = stackQuality(item);
-    return SHOP_ENTRIES.find(
-      (e) =>
-        e.kind === 'item' &&
-        e.item_id === item.item_id &&
-        entryQuality(e) === quality &&
-        e.sell_price !== undefined,
-    );
+    return {
+      kind: 'item',
+      itemId: item.item_id,
+      listed: true,
+      sellPrice: { not: null },
+      ...matchQuality(stackQuality(item)),
+    };
   }
 }

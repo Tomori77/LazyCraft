@@ -13,6 +13,9 @@ model Account {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String   @map("password_hash")
+  // 权限角色（'player' / 'admin'）：管理接口按它放行。故意不入 JWT——
+  // 角色可能变更，每次请求从 DB 读最新值才权威（见 jwt.strategy.ts）。
+  role         String   @default("player") @map("role")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   players      Player[]
 
@@ -138,4 +141,42 @@ model Broadcast {
   // 单个玩家自己的广播历史（未来"我的高光时刻"列表）按 playerId 查
   @@index([playerId])
   @@map("broadcasts")
+}
+
+/* ================================================================== */
+/* 商店条目（task-24b）                                                 */
+/* ================================================================== */
+
+// 商店价目表：系统 NPC 的固定价目表（与玩家市场 market_listings 无关）。
+//
+// 为什么从 shared 常量迁进 DB？
+//   库存需要"全服共享的真实扣减"——两个买家同时抢最后一件必须串行化，
+//   这要求条目是"可被行锁的事务资源"，jsonb 常量做不到。
+//   packages/shared 的 SHOP_ENTRIES 因此退化为初始 seed 来源（见 migration）。
+//
+// 为什么 item_id / template_id 允许 NULL？
+//   kind 决定二选一：kind='item' 用 item_id，kind='equipment' 用 template_id。
+//   两列各自可空 + 应用层校验，比拆成两张表更简单；引用的有效性由 admin 服务端重跑校验。
+model ShopEntryRow {
+  id            String   @id
+  /// 'item' | 'equipment'
+  kind          String
+  itemId        String?  @map("item_id")
+  templateId    String?  @map("template_id")
+  quality       String?
+  buyPrice      Int      @map("buy_price")
+  sellPrice     Int?     @map("sell_price")
+  requiredLevel Int?     @map("required_level")
+  /// -1 = 无限库存；正数为当前剩余（全服共享，买入真实扣减）
+  stock         Int      @default(-1)
+  /// 是否上架；未上架不出现在 GET /api/shop
+  listed        Boolean  @default(true)
+  /// 展示排序（升序），保证同序时结果稳定
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // 商店列表按"上架 + 排序"扫，索引覆盖该查询的过滤与排序
+  @@index([listed, sortOrder])
+  @@map("shop_entries")
 }

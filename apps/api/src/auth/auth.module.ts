@@ -7,6 +7,7 @@ import { AuthService } from './auth.service.js';
 import { AccountsService } from './accounts.service.js';
 import { JwtStrategy } from './jwt.strategy.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
+import { AdminGuard } from './admin.guard.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 
 // 该模块把 Passport/Guard/JwtStrategy 捆绑导出，让上层模块可以直接用 JwtAuthGuard
@@ -22,7 +23,7 @@ import { PrismaModule } from '../prisma/prisma.module.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AccountsService, JwtStrategy, JwtAuthGuard],
-  exports: [JwtAuthGuard, PassportModule],
+  providers: [AuthService, AccountsService, JwtStrategy, JwtAuthGuard, AdminGuard],
+  exports: [JwtAuthGuard, AdminGuard, PassportModule],
 })
 export class AuthModule {}

@@ -10,6 +10,7 @@ export interface JwtPayload {
 
 interface ValidatedUser extends JwtPayload {
   id: string;
+  role: string;
 }
 
 @Injectable()
@@ -27,6 +28,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!account) {
       throw new UnauthorizedException();
     }
-    return { id: payload.sub, ...payload };
+    // role 故意不写进 JWT payload：角色可能被后台变更/撤销，token 里的旧值会一直有效到过期；
+    // 每次请求从 DB 读最新 role，AdminGuard 的判定才是权威的。
+    return { id: payload.sub, ...payload, role: account.role };
   }
 }

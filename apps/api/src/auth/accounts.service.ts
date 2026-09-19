@@ -4,6 +4,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '../lib/prisma-client/client.js';
 import * as bcrypt from 'bcryptjs';
+import { roleForEmail } from './admin-emails.js';
 
 export type SafeAccount = Omit<
   import('../lib/prisma-client/client.js').Account,
@@ -19,11 +20,15 @@ export class AccountsService {
     return this.prisma.account.findUnique({ where: { email } });
   }
 
+  async findById(id: string) {
+    return this.prisma.account.findUnique({ where: { id } });
+  }
+
   // 创建账号时密码先做 bcrypt，避免上层任何代码持有明文密码
   async create(email: string, plaintextPassword: string): Promise<SafeAccount> {
     const passwordHash = await bcrypt.hash(plaintextPassword, 10);
     const account = await this.prisma.account.create({
-      data: { email, passwordHash },
+      data: { email, passwordHash, role: roleForEmail(email) },
     });
     return this.stripPassword(account);
   }
