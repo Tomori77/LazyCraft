@@ -1,5 +1,15 @@
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
+/**
+ * 身份失效事件名。
+ *
+ * 为什么由 http 层公告、而不是在这里直接清 localStorage？
+ *   登录态的存储格式（key 名、email 等）由 AuthProvider 单独持有；
+ *   http 层重复记一份 key 就出现了第二个"真相来源"，将来改 key 必漏一处。
+ *   所以这里只广播"服务器已拒绝身份"，清理动作交给监听方。
+ */
+export const UNAUTHORIZED_EVENT = 'lazycraft:unauthorized';
+
 interface ApiErrorBody {
   message?: string | string[];
 }
@@ -10,6 +20,11 @@ interface ApiErrorBody {
  */
 async function throwIfNotOk(res: Response): Promise<void> {
   if (res.ok) return;
+  // 401 = token 失效（过期 / 换了数据库 / 换了 JWT_SECRET）。广播事件让
+  // AuthProvider 清掉登录态回到登录页，否则前端会一直卡在"有 token 但全 401"。
+  if (res.status === 401 && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
   let message = `HTTP ${res.status}`;
   try {
     const body = (await res.json()) as ApiErrorBody;

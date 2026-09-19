@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { login as loginRequest, register as registerRequest } from './api.ts';
+import { UNAUTHORIZED_EVENT } from '../lib/api.ts';
 
 /**
  * 认证上下文（游客模式的实现基础）
@@ -89,6 +90,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setEmail(null);
   }, []);
+
+  /**
+   * 401 自愈：任何请求收到 401 时清登录态，App 顶层随即切回 GuestView。
+   *
+   * 为什么不做"清完自动重登"：服务器拒绝说明凭据已失效（过期/换库/换密钥），
+   * 客户端没有可用的新凭据，静默重试只会再次 401；交给用户重新输入最诚实。
+   */
+  useEffect(() => {
+    window.addEventListener(UNAUTHORIZED_EVENT, logout);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, logout);
+  }, [logout]);
 
   return createElement(
     AuthContext.Provider,
