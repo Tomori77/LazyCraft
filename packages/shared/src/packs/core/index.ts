@@ -13,7 +13,8 @@
 import type { ContentPack, Enemy, Item, SkillAction } from '../../types.js';
 import { SKILLS, SKILL_ATTACK, SKILL_MINING, SKILL_WOODCUTTING } from '../../data/skills.js';
 import { ACTIONS } from '../../data/actions.js';
-import { ITEMS } from '../../data/resources.js';
+import { ABSTRACT_RESOURCES, ITEMS } from '../../data/resources.js';
+import { EQUIPMENT_SLOTS } from '../../data/equipment-slots.js';
 
 /* ------------------------------------------------------------------ */
 /* 物品                                                                  */
@@ -153,5 +154,9 @@ export const CorePack: ContentPack = {
     registry.action(ACTION_CHOP_TREE);
 
     registry.enemy(ENEMY_CHICKEN);
+
+    // 抽象资源与槽位同样从核心包入口登记，engine 不再直接读常量表
+    for (const resource of ABSTRACT_RESOURCES) registry.abstractResource(resource);
+    for (const slot of EQUIPMENT_SLOTS) registry.slot(slot);
   },
 };

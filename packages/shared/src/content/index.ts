@@ -6,23 +6,20 @@
  *   一旦 DLC 通过 register 注入内容，前端能看到的和引擎能执行的就分叉了。
  *   快照以 Registry 为唯一写入源，原始数组只作为"注册素材"存在。
  *
- * 抽象资源 / 装备槽位的取舍：
- *   Registry 的 ContentKind 目前只覆盖 skill/action/item/enemy（见 types.ts），
- *   抽象资源与槽位不是可注册内容。硬塞进 Registry 需要改 ContentKind 联合类型
- *   并扩 validate，超出本任务范围；这里直接从常量表取，并在类型上保持只读，
- *   待 DLC 真的需要注册资源/槽位时再扩 Registry。
+ * 抽象资源 / 装备槽位已纳入 Registry（见 types.ts ContentKind），
+ *   快照与 skills/actions/itemCatalog 同口径从 Registry 取，
+ *   避免"常量表内容 ≠ 引擎认识的内容"这种分叉再次出现。
  */
 
 import type {
   AbstractResource,
   Content,
+  ContentKind,
+  EquipmentSlotMeta,
   Item,
   Skill,
   SkillAction,
 } from '../types.js';
-import type { EquipmentSlotMeta } from '../loot/equipment-template.js';
-import { EQUIPMENT_SLOTS } from '../loot/equipment-template.js';
-import { ABSTRACT_RESOURCES } from '../data/resources.js';
 import { CorePack } from '../packs/core/index.js';
 import { ContentRegistry, createRegistry } from '../registry/index.js';
 
@@ -50,7 +47,7 @@ export function createCoreRegistry(): { registry: ContentRegistry; errors: strin
 }
 
 /** 按类别取已注册内容，收敛掉 Registry.list() 的联合类型收窄 */
-function listOf<T extends Content>(registry: ContentRegistry, kind: 'skill' | 'action' | 'item'): T[] {
+function listOf<T extends Content>(registry: ContentRegistry, kind: ContentKind): T[] {
   return registry.list(kind) as T[];
 }
 
@@ -59,8 +56,8 @@ export function buildContentSnapshot(registry: ContentRegistry): ContentSnapshot
   return {
     skills: listOf<Skill>(registry, 'skill'),
     actions: listOf<SkillAction>(registry, 'action'),
-    abstractResources: ABSTRACT_RESOURCES,
-    equipmentSlots: EQUIPMENT_SLOTS,
+    abstractResources: listOf<AbstractResource>(registry, 'abstractResource'),
+    equipmentSlots: listOf<EquipmentSlotMeta>(registry, 'slot'),
     itemCatalog: listOf<Item>(registry, 'item'),
   };
 }

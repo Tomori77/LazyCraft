@@ -181,11 +181,63 @@ export interface Season {
   settled: boolean;
 }
 
-/** 内容类别：Registry.get()/list() 的查询维度 */
-export type ContentKind = 'skill' | 'action' | 'item' | 'enemy';
+/**
+ * 装备穿戴部位
+ *
+ * 人体图全集；P1 模板只占 main_hand / chest，其余槽位留空供 DLC 填内容。
+ * 定义在契约层而不是 loot 内部：槽位本身也是可被 DLC 注册的内容（见 ContentKind），
+ * 若把定义埋在 loot 里，registry 与 loot 会互相引用形成循环依赖。
+ */
+export type EquipmentSlot =
+  | 'head'
+  | 'neck'
+  | 'main_hand'
+  | 'off_hand'
+  | 'chest'
+  | 'legs'
+  | 'hands'
+  | 'feet'
+  | 'ring1'
+  | 'ring2';
+
+/**
+ * 装备槽位展示元数据。
+ *
+ * 为什么槽位排布放共享层而不是前端写死？
+ *   人体图的贴位与顺序属于"内容布局规则"，DLC 增删槽位时前端不应改代码；
+ *   前端只按 anchor 分四组、按 order 排序即可渲染。
+ */
+export interface EquipmentSlotMeta {
+  id: EquipmentSlot;
+  /** 人体图上的锚点语义：前端据此把槽位贴到 top / left / right / bottom 四组 */
+  anchor: 'top' | 'left' | 'right' | 'bottom';
+  /** 展示顺序 */
+  order: number;
+}
+
+/**
+ * 内容类别：Registry.get()/list() 的查询维度
+ *
+ * 为什么抽象资源与槽位也算内容？
+ *   它们和技能/物品一样是随 DLC 增删的数据；若只允许引擎内置，
+ *   DLC 每加一种资源或一个部位都得改引擎源码，违背"内容即数据"铁律。
+ */
+export type ContentKind =
+  | 'skill'
+  | 'action'
+  | 'item'
+  | 'enemy'
+  | 'abstractResource'
+  | 'slot';
 
 /** 按类别存储的内容联合类型 */
-export type Content = Skill | SkillAction | Item | Enemy;
+export type Content =
+  | Skill
+  | SkillAction
+  | Item
+  | Enemy
+  | AbstractResource
+  | EquipmentSlotMeta;
 
 /** Registry.validate() 的返回结构：ok=false 时 errors 包含全部不一致项 */
 export interface ValidateResult {
@@ -199,7 +251,7 @@ export interface ValidateResult {
  * 引擎对所有"内容"的统一入口，DLC 通过 ContentPack.register 注入。
  *
  * 双视角设计：
- *   - 写视角（DLC 用）：skill()/action()/item()/enemy() 逐条登记
+ *   - 写视角（DLC 用）：skill()/action()/item()/enemy()/abstractResource()/slot() 逐条登记
  *   - 读视角（引擎用）：register(pack) 整包载入、get(id, type) 精确取、
  *     list(type) 列一类、validate() 启动自检
  */
@@ -213,14 +265,18 @@ export interface Registry {
   item(item: Item): void;
   /** 注册一个敌人 */
   enemy(enemy: Enemy): void;
+  /** 注册一个抽象资源：DLC 新增资源不应改引擎源码 */
+  abstractResource(resource: AbstractResource): void;
+  /** 注册一个装备槽位：DLC 增删部位不应改引擎源码 */
+  slot(meta: EquipmentSlotMeta): void;
 
   /* 读视角：引擎消费用 */
   /** 整包注册一个内容包 */
   register(pack: ContentPack): void;
   /** 按 ID + 类别精确取已注册内容 */
-  get(id: string, type: ContentKind): Skill | SkillAction | Item | Enemy | undefined;
+  get(id: string, type: ContentKind): Content | undefined;
   /** 按类别列出已注册内容 */
-  list(type: ContentKind): Array<Skill | SkillAction | Item | Enemy>;
+  list(type: ContentKind): Content[];
   /** 注册完成后做一致性校验（例如所有 action.skill_id 必须存在） */
   validate(): ValidateResult;
 }

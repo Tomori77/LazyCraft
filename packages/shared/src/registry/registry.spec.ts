@@ -9,7 +9,15 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { ContentPack, Item, SkillAction } from '../types.js';
+import type {
+  AbstractResource,
+  ContentPack,
+  EquipmentSlotMeta,
+  Item,
+  SkillAction,
+} from '../types.js';
+import { ABSTRACT_RESOURCES, RES_GOLD } from '../data/resources.js';
+import { EQUIPMENT_SLOTS } from '../data/equipment-slots.js';
 import { CorePack } from '../packs/core/index.js';
 import {
   ACTION_CHOP_TREE,
@@ -40,9 +48,15 @@ describe('ContentRegistry', () => {
     );
     expect(registry.get(ITEM_WOOD.id, 'item')).toEqual(ITEM_WOOD);
     expect(registry.get(ENEMY_CHICKEN.id, 'enemy')).toEqual(ENEMY_CHICKEN);
+    expect(registry.get(RES_GOLD.id, 'abstractResource')).toEqual(RES_GOLD);
+    expect(registry.get('main_hand', 'slot')).toEqual(
+      EQUIPMENT_SLOTS.find((s) => s.id === 'main_hand'),
+    );
     expect(registry.get('not_exist', 'item')).toBeUndefined();
     // 同一个 ID 可能在不同类别共存，这里验证类别隔离
     expect(registry.get(ACTION_CHOP_TREE.id, 'skill')).toBeUndefined();
+    expect(registry.get(RES_GOLD.id, 'slot')).toBeUndefined();
+    expect(registry.get('main_hand', 'abstractResource')).toBeUndefined();
   });
 
   it('list(type) 返回该类别的全部内容', () => {
@@ -66,6 +80,69 @@ describe('ContentRegistry', () => {
 
     const skills = registry.list('skill');
     expect(skills.length).toBeGreaterThan(0);
+  });
+
+  it('list(abstractResource) 注册 CorePack 后含 gold 且数量=4', () => {
+    const registry = createRegistry();
+    registry.register(CorePack);
+
+    const resources = registry.list('abstractResource');
+    expect(resources).toHaveLength(ABSTRACT_RESOURCES.length);
+    expect(resources).toHaveLength(4);
+    expect(resources.map((r) => r.id)).toContain(RES_GOLD.id);
+  });
+
+  it('list(slot) 注册 CorePack 后数量=10 且 order 唯一', () => {
+    const registry = createRegistry();
+    registry.register(CorePack);
+
+    const slots = registry.list('slot') as EquipmentSlotMeta[];
+    expect(slots).toHaveLength(EQUIPMENT_SLOTS.length);
+    expect(slots).toHaveLength(10);
+    expect(new Set(slots.map((s) => s.order)).size).toBe(slots.length);
+  });
+
+  it('同名 ID 在 skill 与 abstractResource 之间互不串桶', () => {
+    const registry = createRegistry();
+    registry.register(CorePack);
+
+    // 'mining' 已被注册为技能；再登记一个同名抽象资源应只落到资源桶
+    const shadow: AbstractResource = {
+      id: 'mining',
+      name: '影子资源',
+      tier: 1,
+    };
+    registry.abstractResource(shadow);
+
+    expect(registry.get('mining', 'skill')).not.toEqual(shadow);
+    expect(registry.get('mining', 'abstractResource')).toEqual(shadow);
+    expect(registry.list('skill').some((s) => s.name === '影子资源')).toBe(false);
+  });
+
+  it('validate 报告槽位 order 重复与空 id', () => {
+    const badSlots: EquipmentSlotMeta[] = [
+      { id: 'head', anchor: 'top', order: 1 },
+      { id: 'neck', anchor: 'top', order: 1 },
+      { id: '', anchor: 'top', order: 2 },
+    ];
+    const badPack: ContentPack = {
+      id: 'bad_slot_pack',
+      name: '坏槽位包',
+      version: '0.0.1',
+      register(registry) {
+        for (const slot of badSlots) registry.slot(slot);
+      },
+    };
+
+    const registry = new ContentRegistry();
+    registry.register(badPack);
+
+    const result = registry.validate();
+    expect(result.ok).toBe(false);
+    const all = result.errors.join('\n');
+    expect(all).toContain('[slot:neck]');
+    expect(all).toContain('order 1');
+    expect(all).toContain('空字符串');
   });
 
   it('listPacks 返回已注册包的 id@version 列表', () => {

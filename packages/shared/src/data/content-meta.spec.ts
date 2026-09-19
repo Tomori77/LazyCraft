@@ -11,7 +11,10 @@ import { ACTIONS } from './actions.js';
 import { ABSTRACT_RESOURCES } from './resources.js';
 import { SKILLS } from './skills.js';
 import { ACTION_CHOP_TREE, ACTION_MINE_TINY_VEIN } from '../packs/core/index.js';
-import { EQUIPMENT_SLOTS, type EquipmentSlot } from '../loot/equipment-template.js';
+import { EQUIPMENT_SLOTS } from './equipment-slots.js';
+import type { EquipmentSlot, EquipmentSlotMeta } from '../types.js';
+// 顶层出口断言：搬迁后外部仍可只依赖 @lazycraft/shared 一个入口
+import * as shared from '../index.js';
 
 const CORE_ACTIONS = [ACTION_MINE_TINY_VEIN, ACTION_CHOP_TREE];
 
@@ -110,6 +113,13 @@ describe('EQUIPMENT_SLOTS 槽位元数据', () => {
     }
     const anchors = new Set(EQUIPMENT_SLOTS.map((s) => s.anchor));
     expect(anchors).toEqual(valid);
+  });
+
+  it('搬迁后仍从 @lazycraft/shared 顶层可 import 常量与类型', () => {
+    expect(shared.EQUIPMENT_SLOTS).toBe(EQUIPMENT_SLOTS);
+    const meta: EquipmentSlotMeta = shared.EQUIPMENT_SLOTS[0];
+    const id: EquipmentSlot = meta.id;
+    expect(typeof id).toBe('string');
   });
 });
 

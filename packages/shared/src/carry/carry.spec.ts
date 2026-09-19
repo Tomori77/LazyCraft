@@ -194,8 +194,10 @@ describe('CorePack 统一事实源', () => {
     for (const action of snapshot.actions) {
       expect(typeof action.tier).toBe('number');
     }
+    // 抽象资源 / 槽位改为从 Registry 取后，内容与注册顺序仍与常量表一致
     expect(snapshot.abstractResources).toEqual(ABSTRACT_RESOURCES);
-    expect(snapshot.equipmentSlots.length).toBeGreaterThan(0);
+    expect(snapshot.abstractResources).toHaveLength(4);
+    expect(snapshot.equipmentSlots).toHaveLength(10);
     expect(snapshot.itemCatalog.length).toBe(ITEMS.length + 3);
   });
 });

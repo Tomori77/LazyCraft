@@ -12,10 +12,12 @@
  */
 
 import type {
+  AbstractResource,
   Content,
   ContentKind,
   ContentPack,
   Enemy,
+  EquipmentSlotMeta,
   Item,
   Registry,
   Skill,
@@ -35,6 +37,8 @@ export class ContentRegistry implements Registry {
   private readonly actions = new Map<string, SkillAction>();
   private readonly items = new Map<string, Item>();
   private readonly enemies = new Map<string, Enemy>();
+  private readonly abstractResources = new Map<string, AbstractResource>();
+  private readonly slots = new Map<string, EquipmentSlotMeta>();
 
   /** 已注册的内容包标识（用于重复注册防御和审计） */
   private readonly registeredPacks: string[] = [];
@@ -57,6 +61,14 @@ export class ContentRegistry implements Registry {
 
   enemy(enemy: Enemy): void {
     this.enemies.set(enemy.id, enemy);
+  }
+
+  abstractResource(resource: AbstractResource): void {
+    this.abstractResources.set(resource.id, resource);
+  }
+
+  slot(meta: EquipmentSlotMeta): void {
+    this.slots.set(meta.id, meta);
   }
 
   /* ------------------------------------------------------------------ */
@@ -101,6 +113,9 @@ export class ContentRegistry implements Registry {
    *   3. item.source_skill 如果填写，必须指向已注册技能
    *   4. enemy.loot_table_id 如果填写，不能是空字符串
    *      （P1 loot_tables 落地前先做最弱校验，保证字段通路可用）
+   *   5. slot.id 非空且 order 全局唯一
+   *      （Map 已按 id 去重，空 id / 重复 order 是 Map 拦不住、
+   *       却会让前端排序不稳定、槽位落不到人偶上的配置错误）
    *
    * 为什么 error 是字符串而不是结构化对象？
    *   启动阶段错误直接打印到控制台 / 写入日志，人读优先；
@@ -148,6 +163,22 @@ export class ContentRegistry implements Registry {
       }
     }
 
+    // 校验槽位：id 非空 + order 唯一（前端按 order 排序，重复会导致渲染顺序不稳定）
+    const usedOrders = new Map<number, string>();
+    for (const slot of this.slots.values()) {
+      if (slot.id.length === 0) {
+        errors.push(`[slot] id 不能是空字符串`);
+      }
+      const owner = usedOrders.get(slot.order);
+      if (owner !== undefined) {
+        errors.push(
+          `[slot:${slot.id}] order ${slot.order} 与槽位 "${owner}" 重复`,
+        );
+      } else {
+        usedOrders.set(slot.order, slot.id);
+      }
+    }
+
     return { ok: errors.length === 0, errors };
   }
 
@@ -165,6 +196,10 @@ export class ContentRegistry implements Registry {
         return this.items;
       case 'enemy':
         return this.enemies;
+      case 'abstractResource':
+        return this.abstractResources;
+      case 'slot':
+        return this.slots;
       default:
         // 类型层已穷尽，防御未知运行时字符串
         throw new Error(`unknown content kind: ${String(kind)}`);
