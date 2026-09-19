@@ -28,13 +28,14 @@ afterAll(async () => {
 
 async function registerAndLogin() {
   const email = `player-e2e-${randomUUID()}@example.com`;
+  const username = `player_${randomUUID().slice(0, 8)}`;
   const password = 'test-password-8';
-  await request(app.getHttpServer()).post('/api/auth/register').send({ email, password }).expect(201);
+  await request(app.getHttpServer()).post('/api/auth/register').send({ username, email, password }).expect(201);
   const res = await request(app.getHttpServer())
     .post('/api/auth/login')
     .send({ email, password })
     .expect(200);
-  return { token: res.body.accessToken as string, email };
+  return { token: res.body.accessToken as string, email, username };
 }
 
 /** 懒创建存档（保证后续 POST 的版本校验有基线） */
@@ -59,13 +60,13 @@ describe('/api/player (e2e)', () => {
     await request(app.getHttpServer()).get('/api/player').expect(401);
   });
 
-  it('首次 GET → 默认结构：name 形如 player-xxxx、level=1、技能/槽位全覆盖且默认、carry 0/100 + 0/500', async () => {
-    const { token, email } = await registerAndLogin();
+  it('首次 GET → 默认结构：name=注册用户名、level=1、技能/槽位全覆盖且默认、carry 0/100 + 0/500', async () => {
+    const { token, username } = await registerAndLogin();
     const res = await getPlayer(token).expect(200);
     const body = res.body;
 
-    expect(body.name).toMatch(/^player-[0-9a-f]{8}$/);
-    // name 取账号 id 前 8 位，与 ensurePlayer 口径一致（此处仅校验前缀，账号 id 非邮箱）
+    // P3-7：注册用户名直接落成玩家显示名
+    expect(body.name).toBe(username);
     expect(typeof body.name).toBe('string');
     expect(body.level).toBe(1);
 
@@ -88,8 +89,6 @@ describe('/api/player (e2e)', () => {
       storage_used: 0,
       storage_capacity: DEFAULT_STORAGE_CAPACITY,
     });
-    // 邮箱只用于注册，不参与 player.name
-    expect(email).toContain('player-e2e-');
   });
 
   it('写入技能/背包/仓库/装备/抽象资源后 GET → 各字段正确', async () => {

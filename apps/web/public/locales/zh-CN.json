@@ -148,5 +148,6 @@
   "quality.name.common": "普通",
   "quality.name.uncommon": "优秀",
   "quality.name.rare": "稀有",
-  "quality.name.epic": "史诗"
+  "quality.name.epic": "史诗",
+  "auth.username": "用户名"
 }

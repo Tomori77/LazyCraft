@@ -1,0 +1,17 @@
+-- task-28（P3-7）：players.name 全局唯一
+--
+-- 为什么需要这条约束？
+--   注册用户名被直接落成游戏内显示名（取代旧的 player-<id前8位> 懒生成），
+--   产品要求"用户名全局唯一"；应用层查重只能挡住顺序请求，注册并发竞态
+--   仍需 DB 唯一索引兜底，否则同一用户名可能被两个账号同时抢占。
+--
+-- ⚠️ 数据风险（不在本迁移内清洗）：
+--   players.name 当前无唯一约束，历史上多账号懒创建时用的是 accountId 前 8 位；
+--   虽然 uuid 前 8 位碰撞概率极低，但若库中已存在重名行，本 CREATE UNIQUE INDEX
+--   会直接失败、迁移中止。处理建议（需人工确认后再执行，本任务不擅自清洗）：
+--     1. 先查重：SELECT lower(name), count(*) FROM players GROUP BY 1 HAVING count(*) > 1;
+--     2. 对重名的旧账号按规则改名：UPDATE players SET name = '玩家-' || substr(md5(random()::text), 1, 6)
+--        WHERE id IN (...);  （名字与 SaveService 旧账号懒创建口径一致）
+--     3. 再重新执行迁移。
+--   开发库由主会话决定何时 `prisma migrate deploy`，本任务只生成迁移文件。
+CREATE UNIQUE INDEX "players_name_key" ON "players"("name");

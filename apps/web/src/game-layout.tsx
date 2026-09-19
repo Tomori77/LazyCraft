@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { CarriedItem, EquipmentInstance } from '@lazycraft/shared';
 import { useT } from './i18n/index.ts';
 import { SettingsPanel } from './settings/settings-panel.tsx';
-import { LoginForm } from './auth/login-form.tsx';
+import { LoginScreen, RegisterScreen } from './auth/auth-screens.tsx';
 import { ActionProvider } from './action/action-context.tsx';
 import { ContentProvider, useContent } from './content/content-context.tsx';
 import { PlayerProvider, usePlayer } from './player/player-context.tsx';
@@ -187,10 +187,21 @@ function GameShell({
  * 为什么单独抽出来：App 入口只负责分流，不关心视觉排版；
  * 游客视图的视觉规则（居中）与三栏游戏布局完全不同，分开写避免互相污染。
  */
+/**
+ * 游客（未登录）视图：登录 / 注册两个独立屏幕，居中排版。
+ *
+ * 为什么用本地 state 而不是路由：游客视图是游戏外唯一入口，
+ * 两个屏幕互斥切换即可，引入 router 不值当（P3-7 决策）。
+ */
 export function GuestView() {
+  const [view, setView] = useState<'login' | 'register'>('login');
   return (
     <main className="guest-layout">
-      <LoginForm />
+      {view === 'login' ? (
+        <LoginScreen onSwitch={() => setView('register')} />
+      ) : (
+        <RegisterScreen onSwitch={() => setView('login')} />
+      )}
     </main>
   );
 }

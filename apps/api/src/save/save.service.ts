@@ -7,6 +7,11 @@ import { Prisma, PrismaClient } from '../lib/prisma-client/client.js';
 import { CURRENT_SAVE_VERSION, createEmptySaveData, type SaveData } from './save-shape.js';
 import { migrateSave } from './migrations/index.js';
 
+/** 旧账号懒创建用的随机名后缀：6 位小写字母数字，够短也够避开撞名 */
+function randomSuffix(): string {
+  return Math.random().toString(36).slice(2, 8).padEnd(6, '0');
+}
+
 /**
  * 存档读写服务
  *
@@ -22,11 +27,13 @@ export class SaveService {
 
   /**
    * 当前账号没有显式的"角色选择"流程，约定每个账号至少有一个默认 player。
-   * 这里通过 findFirst + create 实现"懒创建"——避免要求客户端先调用一个创建角色的接口。
    *
-   * 为什么不在注册账号时同步创建 player？
-   *   注册与存档属于不同模块的职责；用懒创建可以让 AuthModule 不需要感知 Player 的存在，
-   *   后续要支持"多存档槽位"时也是改这一处而不是动注册流程。
+   * 注册流程（P3-7）已直接建好 player（name = 注册用户名），所以正常路径这里只
+   * findFirst 命中就返回；**懒创建只服务旧账号**（P3-7 之前注册、尚无玩家）。
+   *
+   * 为什么懒创建要重试随机名？
+   *   players.name 现在是全局唯一（P3-7）。旧账号补名时若随机码撞上已存在的名字，
+   *   唯一约束会抛 P2002——重试换一个随机码即可，不该让玩家因此无法进入游戏。
    *
    * 为什么是 public？
    *   task-08 的 ActionModule 需要绕开"读存档"只拿 player.id 去做条件更新。
@@ -40,10 +47,21 @@ export class SaveService {
     if (existed) {
       return existed;
     }
-    // 默认角色名直接使用账号 id 的前 8 位，便于调试时一眼定位所属账号
-    return this.prisma.player.create({
-      data: { accountId, name: `player-${accountId.slice(0, 8)}` },
-    });
+
+    // 旧账号兜底：随机名 + 冲突重试（唯一约束是最终裁判，避免撞名直接 500）
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        return await this.prisma.player.create({
+          data: { accountId, name: `玩家-${randomSuffix()}` },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new InternalServerErrorException('创建默认角色失败：随机名重复次数过多');
   }
 
   /**

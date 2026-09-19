@@ -16,7 +16,8 @@ export class AuthService {
     if (existed) {
       throw new ConflictException('邮箱已被注册');
     }
-    const account = await this.accounts.create(dto.email, dto.password);
+    // 账号与 player 同名同建在同一事务里完成：用户名冲突时整体回滚，不留孤儿账号
+    const account = await this.accounts.createWithPlayer(dto.username, dto.email, dto.password);
     return { account };
   }
 

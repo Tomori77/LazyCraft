@@ -25,7 +25,7 @@ interface AuthContextValue {
   /** 登录/注册请求进行中，用于表单防止重复提交 */
   pending: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -77,9 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    (email_: string, password: string) =>
+    (username: string, email_: string, password: string) =>
       apply(async () => {
-        await registerRequest(email_, password);
+        await registerRequest(username, email_, password);
         // 注册接口只返回 account 不发 token，注册成功后紧接着登录一次，少一步用户操作
         return loginRequest(email_, password);
       }, email_),

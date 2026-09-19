@@ -1,8 +1,8 @@
 // 仅写"为什么"：
 // - id/passwordHash 只读是为了避免意外修改，passwordHash 只在创建/登录时通过 service 写入或比较
 // - 对外暴露 account，但绝不包含 passwordHash（通过 Omit<> 在类型层面封堵）
-import { Injectable } from '@nestjs/common';
-import { PrismaClient } from '../lib/prisma-client/client.js';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma, PrismaClient } from '../lib/prisma-client/client.js';
 import * as bcrypt from 'bcryptjs';
 import { roleForEmail } from './admin-emails.js';
 
@@ -24,13 +24,47 @@ export class AccountsService {
     return this.prisma.account.findUnique({ where: { id } });
   }
 
-  // 创建账号时密码先做 bcrypt，避免上层任何代码持有明文密码
-  async create(email: string, plaintextPassword: string): Promise<SafeAccount> {
+  /**
+   * 注册：账号与游戏角色（player.name = 用户名）在同一事务内创建。
+   *
+   * 为什么放在 AccountsService 而不是 AuthService 里直接写事务？
+   *   哈希密码、剥离 passwordHash 这些"账号持久化"细节都归本 service；
+   *   若在 AuthService 里开事务，就得把 bcrypt 与 SafeAccount 逻辑再复制一份。
+   *   用户名唯一性检查与写入放在同一事务，冲突时整体回滚，
+   *   不会留下"账号已建、玩家没建"的孤儿账号。
+   *
+   * 为什么用 P2002 兜底而不是只靠 findUnique 预检？
+   *   预检只挡顺序请求；两个并发注册抢同一用户名时，唯一索引才是最终裁判，
+   *   捕获 P2002 转成 409，避免把数据库错误泄露成 500。
+   */
+  async createWithPlayer(
+    username: string,
+    email: string,
+    plaintextPassword: string,
+  ): Promise<SafeAccount> {
     const passwordHash = await bcrypt.hash(plaintextPassword, 10);
-    const account = await this.prisma.account.create({
-      data: { email, passwordHash, role: roleForEmail(email) },
-    });
-    return this.stripPassword(account);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const nameTaken = await tx.player.findUnique({ where: { name: username } });
+        if (nameTaken) {
+          throw new ConflictException('用户名已被占用');
+        }
+        const account = await tx.account.create({
+          data: { email, passwordHash, role: roleForEmail(email) },
+        });
+        await tx.player.create({ data: { accountId: account.id, name: username } });
+        return this.stripPassword(account);
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        // 命中 accounts_email 或 players_name 唯一索引：并发竞态下另一请求已抢占
+        const target = String(error.meta?.target ?? '');
+        throw new ConflictException(
+          target.includes('email') ? '邮箱已被注册' : '用户名已被占用',
+        );
+      }
+      throw error;
+    }
   }
 
   async validatePassword(

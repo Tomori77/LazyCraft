@@ -29,8 +29,9 @@ afterAll(async () => {
 /** 注册 + 登录一个新账号，拿可用 token */
 async function registerAndLogin() {
   const email = `market-e2e-${randomUUID()}@example.com`;
+  const username = `market_${randomUUID().slice(0, 8)}`;
   const password = 'test-password-8';
-  await request(app.getHttpServer()).post('/api/auth/register').send({ email, password }).expect(201);
+  await request(app.getHttpServer()).post('/api/auth/register').send({ username, email, password }).expect(201);
   const res = await request(app.getHttpServer())
     .post('/api/auth/login')
     .send({ email, password })

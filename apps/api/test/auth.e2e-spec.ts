@@ -22,13 +22,14 @@ afterAll(async () => {
 
 describe('/api/auth (e2e)', () => {
   const email = `auth-e2e-${randomUUID()}@example.com`;
+  const username = `auth_${randomUUID().slice(0, 8)}`;
   const password = 'test-password-8';
   let accessToken: string;
 
   it('注册成功返回账号且无密码哈希', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/auth/register')
-      .send({ email, password })
+      .send({ username, email, password })
       .expect(201);
 
     expect(res.body).toMatchObject({
@@ -42,7 +43,28 @@ describe('/api/auth (e2e)', () => {
   });
 
   it('重复注册同邮箱返回 409', async () => {
-    await request(app.getHttpServer()).post('/api/auth/register').send({ email, password }).expect(409);
+    await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ username: `auth_other_${randomUUID().slice(0, 6)}`, email, password })
+      .expect(409);
+  });
+
+  it('重复注册同用户名返回 409', async () => {
+    await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ username, email: `auth-other-${randomUUID()}@example.com`, password })
+      .expect(409);
+  });
+
+  it('用户名非法（太短 / 非法字符）返回 400', async () => {
+    await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ username: 'x', email: `auth-bad-${randomUUID()}@example.com`, password })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ username: 'bad name!', email: `auth-bad2-${randomUUID()}@example.com`, password })
+      .expect(400);
   });
 
   it('登录成功返回 JWT token', async () => {
@@ -68,5 +90,14 @@ describe('/api/auth (e2e)', () => {
 
     expect(res.body).toMatchObject({ email });
     expect(res.body).toHaveProperty('id');
+  });
+
+  it('注册用户名落成玩家显示名：/api/player.name === username', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/player')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(res.body.name).toBe(username);
   });
 });

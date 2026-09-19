@@ -12,6 +12,10 @@ export function login(email: string, password: string): Promise<{ accessToken: s
   return apiPost('/auth/login', { email, password });
 }
 
-export function register(email: string, password: string): Promise<{ account: { id: string; email: string } }> {
-  return apiPost('/auth/register', { email, password });
+export function register(
+  username: string,
+  email: string,
+  password: string,
+): Promise<{ account: { id: string; email: string } }> {
+  return apiPost('/auth/register', { username, email, password });
 }

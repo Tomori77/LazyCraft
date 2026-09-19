@@ -27,7 +27,9 @@ model Player {
   id        String          @id @default(uuid())
   accountId String          @map("account_id")
   account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  name      String
+  // 注册用户名直接落成游戏内显示名（P3-7），全局唯一：靠应用层查重给友好 409，
+  // 靠这条唯一约束兜底并发竞态；旧账号懒创建的名字是"玩家-随机码"，同样受约束保护。
+  name      String          @unique
   createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   save      Save?
   listings  MarketListing[]
