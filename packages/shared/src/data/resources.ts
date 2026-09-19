@@ -16,6 +16,14 @@ import type { AbstractResource, Item } from '../types.js';
 /* 抽象资源（账号绑定，不占背包）                                          */
 /* ------------------------------------------------------------------ */
 
+/** 金币：与市场 GOLD_KEY='gold' 对齐登记，消灭"存档键名靠口头约定"的隐含契约 */
+export const RES_GOLD: AbstractResource = {
+  id: 'gold',
+  name: '金币',
+  tier: 1,
+  icon: 'gold',
+};
+
 export const RES_WOOD: AbstractResource = {
   id: 'res_wood',
   name: '木材',
@@ -38,6 +46,7 @@ export const RES_IRON_INGOT: AbstractResource = {
 };
 
 export const ABSTRACT_RESOURCES: readonly AbstractResource[] = [
+  RES_GOLD,
   RES_WOOD,
   RES_STONE,
   RES_IRON_INGOT,

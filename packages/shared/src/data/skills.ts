@@ -13,6 +13,8 @@ export const SKILL_ATTACK: Skill = {
   type: 'combat',
   max_level: 99,
   breakthrough_enabled: true,
+  order: 1,
+  icon: 'attack',
 };
 
 export const SKILL_MINING: Skill = {
@@ -21,6 +23,8 @@ export const SKILL_MINING: Skill = {
   type: 'non_combat',
   max_level: 99,
   breakthrough_enabled: true,
+  order: 1,
+  icon: 'mining',
 };
 
 export const SKILL_WOODCUTTING: Skill = {
@@ -29,6 +33,8 @@ export const SKILL_WOODCUTTING: Skill = {
   type: 'non_combat',
   max_level: 99,
   breakthrough_enabled: true,
+  order: 2,
+  icon: 'woodcutting',
 };
 
 export const SKILL_FISHING: Skill = {
@@ -37,6 +43,8 @@ export const SKILL_FISHING: Skill = {
   type: 'non_combat',
   max_level: 99,
   breakthrough_enabled: true,
+  order: 3,
+  icon: 'fishing',
 };
 
 /** 生火：消耗木材类产生熟食品/木炭；task-08 至少需要一个"材料消耗"动作挂在它身上才能走校验通路 */
@@ -46,6 +54,8 @@ export const SKILL_FIREMAKING: Skill = {
   type: 'non_combat',
   max_level: 99,
   breakthrough_enabled: true,
+  order: 4,
+  icon: 'firemaking',
 };
 
 export const SKILLS: readonly Skill[] = [

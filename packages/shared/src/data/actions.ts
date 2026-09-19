@@ -20,6 +20,7 @@ export const ACTION_MINE_COPPER: SkillAction = {
   output_items: { copper_ore: 1 },
   output_exp: 0,
   required_level: 1,
+  tier: 1,
 };
 
 /** 采铁矿：15 级解锁——用于验证"等级不足被拒绝"的校验路径 */
@@ -33,6 +34,7 @@ export const ACTION_MINE_IRON: SkillAction = {
   output_items: { iron_ore: 1 },
   output_exp: 0,
   required_level: 15,
+  tier: 2,
 };
 
 /** 伐木：枫树原木 */
@@ -46,6 +48,7 @@ export const ACTION_CHOP_MAPLE: SkillAction = {
   output_items: { maple_log: 1 },
   output_exp: 0,
   required_level: 1,
+  tier: 1,
 };
 
 /** 烧炭：有材料消耗——用于验证"材料不足被拒绝"的校验路径 */
@@ -59,6 +62,7 @@ export const ACTION_BURN_CHARCOAL: SkillAction = {
   output_items: {},
   output_exp: 0,
   required_level: 1,
+  tier: 1,
 };
 
 export const ACTIONS: readonly SkillAction[] = [

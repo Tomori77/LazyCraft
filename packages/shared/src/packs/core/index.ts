@@ -76,6 +76,7 @@ export const ACTION_MINE_TINY_VEIN: SkillAction = {
   output_items: { [ITEM_TINY_COPPER_VEIN.id]: 1 },
   output_exp: 0,
   required_level: 1,
+  tier: 1,
 };
 
 /** 砍树：3 秒一次、产出 1 个木头 */
@@ -89,6 +90,7 @@ export const ACTION_CHOP_TREE: SkillAction = {
   output_items: { [ITEM_WOOD.id]: 1 },
   output_exp: 0,
   required_level: 1,
+  tier: 1,
 };
 
 /* ------------------------------------------------------------------ */

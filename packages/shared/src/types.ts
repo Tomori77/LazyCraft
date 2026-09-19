@@ -86,6 +86,10 @@ export interface Skill {
   max_level: number;
   /** 是否允许突破到 120 */
   breakthrough_enabled: boolean;
+  /** 左栏分组展示序：战斗组/非战斗组内各自排序，缺省按 id 排 */
+  order?: number;
+  /** 图标标识（前端按 key 取图，缺省回退首字母，与 AbstractResource.icon 同策略） */
+  icon?: string;
 }
 
 /**
@@ -119,6 +123,16 @@ export interface SkillAction {
    *   等级要求天然是动作的元数据——与 interval / 消耗 / 产出并列。
    */
   required_level: number;
+  /**
+   * 工作阶位：1=基础 2=进阶 3=高级 4=大师，前端据此生成中栏分类页签。
+   *
+   * 与 required_level 正交：required_level 是"解锁门槛"，tier 是"展示分档"。
+   * 为什么不让前端按 required_level 区间硬编码分桶？——那等于把数据规则写进 UI，
+   * 同一门槛区间的动作以后可能被策划重新归为不同档位，前端无法跟随数据变化。
+   */
+  tier: number;
+  /** 图标标识（工作卡片用，缺省回退首字母） */
+  icon?: string;
 }
 
 /** 敌人 */

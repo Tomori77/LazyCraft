@@ -17,8 +17,46 @@
 
 import type { Quality } from '../types.js';
 
-/** 装备穿戴部位（P1 只用到 main_hand / chest，其他部位留枚举值供 DLC 扩展） */
-export type EquipmentSlot = 'main_hand' | 'off_hand' | 'head' | 'chest' | 'legs' | 'feet';
+/** 装备穿戴部位（人体图全集；P1 模板只占 main_hand / chest，其余槽位留空供 DLC 填内容） */
+export type EquipmentSlot =
+  | 'head'
+  | 'neck'
+  | 'main_hand'
+  | 'off_hand'
+  | 'chest'
+  | 'legs'
+  | 'hands'
+  | 'feet'
+  | 'ring1'
+  | 'ring2';
+
+/**
+ * 装备槽位展示元数据。
+ *
+ * 为什么槽位排布放 shared 而不是前端写死？
+ *   人体图的贴位与顺序属于"内容布局规则"，DLC 增删槽位时前端不应改代码；
+ *   前端只按 anchor 分四组、按 order 排序即可渲染。
+ */
+export interface EquipmentSlotMeta {
+  id: EquipmentSlot;
+  /** 人体图上的锚点语义：前端据此把槽位贴到 top / left / right / bottom 四组 */
+  anchor: 'top' | 'left' | 'right' | 'bottom';
+  /** 展示顺序 */
+  order: number;
+}
+
+export const EQUIPMENT_SLOTS: readonly EquipmentSlotMeta[] = [
+  { id: 'head', anchor: 'top', order: 1 },
+  { id: 'neck', anchor: 'top', order: 2 },
+  { id: 'main_hand', anchor: 'left', order: 3 },
+  { id: 'chest', anchor: 'left', order: 4 },
+  { id: 'hands', anchor: 'left', order: 5 },
+  { id: 'off_hand', anchor: 'right', order: 6 },
+  { id: 'legs', anchor: 'right', order: 7 },
+  { id: 'feet', anchor: 'right', order: 8 },
+  { id: 'ring1', anchor: 'bottom', order: 9 },
+  { id: 'ring2', anchor: 'bottom', order: 10 },
+];
 
 /** 装备模板表条目 */
 export interface EquipmentTemplate {
