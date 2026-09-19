@@ -5,7 +5,8 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from './../src/app.module.js';
-import { createEmptySaveData, CURRENT_SAVE_VERSION } from './../src/save/save-shape.js';
+import { CURRENT_SAVE_VERSION } from './../src/save/save-shape.js';
+import { stack, v3Data } from './save-fixtures.js';
 import {
   MARKET_LISTING_FEE,
   MARKET_TAX_RATE,
@@ -47,11 +48,10 @@ async function grantState(
   token: string,
   overrides: { inventory?: unknown[]; gold?: number },
 ) {
-  const data = {
-    ...createEmptySaveData(),
+  const data = v3Data({
     ...(overrides.inventory ? { inventory: overrides.inventory } : {}),
     abstract_resources: { gold: overrides.gold ?? 0 },
-  };
+  });
   await request(app.getHttpServer())
     .post('/api/save')
     .set('Authorization', `Bearer ${token}`)
@@ -66,7 +66,7 @@ async function readSaveData(token: string) {
     .set('Authorization', `Bearer ${token}`)
     .expect(200);
   return res.body.data as {
-    inventory: Array<{ item_id: string; quantity: number; quality?: string }>;
+    inventory: Array<{ kind: string; item_id: string; quantity: number; quality?: string }>;
     abstract_resources: { gold?: number };
   };
 }
@@ -86,7 +86,7 @@ describe('/api/market (e2e)', () => {
     await ensureSave(token);
     // 给卖家发 10 块铜矿 + 100 G
     await grantState(token, {
-      inventory: [{ item_id: 'copper_ore', quantity: 10, quality: 'common' }],
+      inventory: [stack('copper_ore', 10, 'common')],
       gold: 100,
     });
 
@@ -151,7 +151,7 @@ describe('/api/market (e2e)', () => {
     const sellerToken = await registerAndLogin();
     await ensureSave(sellerToken);
     await grantState(sellerToken, {
-      inventory: [{ item_id: 'iron_ore', quantity: 20, quality: 'common' }],
+      inventory: [stack('iron_ore', 20, 'common')],
       gold: 1000,
     });
 
@@ -213,7 +213,7 @@ describe('/api/market (e2e)', () => {
     const sellerToken = await registerAndLogin();
     await ensureSave(sellerToken);
     await grantState(sellerToken, {
-      inventory: [{ item_id: 'maple_log', quantity: 30, quality: 'common' }],
+      inventory: [stack('maple_log', 30, 'common')],
       gold: 1000,
     });
     const buyerToken = await registerAndLogin();
@@ -259,7 +259,7 @@ describe('/api/market (e2e)', () => {
     const token = await registerAndLogin();
     await ensureSave(token);
     await grantState(token, {
-      inventory: [{ item_id: 'copper_ore', quantity: 2, quality: 'common' }],
+      inventory: [stack('copper_ore', 2, 'common')],
       gold: 100,
     });
 
@@ -297,7 +297,7 @@ describe('/api/market (e2e)', () => {
     const sellerPoor = await registerAndLogin();
     await ensureSave(sellerPoor);
     await grantState(sellerPoor, {
-      inventory: [{ item_id: 'copper_ore', quantity: 5, quality: 'common' }],
+      inventory: [stack('copper_ore', 5, 'common')],
       gold: MARKET_LISTING_FEE - 1,
     });
     await request(app.getHttpServer())
@@ -310,7 +310,7 @@ describe('/api/market (e2e)', () => {
     const sellerToken = await registerAndLogin();
     await ensureSave(sellerToken);
     await grantState(sellerToken, {
-      inventory: [{ item_id: 'copper_ore', quantity: 5, quality: 'common' }],
+      inventory: [stack('copper_ore', 5, 'common')],
       gold: 1000,
     });
     const list = await request(app.getHttpServer())
@@ -348,10 +348,7 @@ describe('/api/market (e2e)', () => {
     const sellerToken = await registerAndLogin();
     await ensureSave(sellerToken);
     await grantState(sellerToken, {
-      inventory: [
-        { item_id: 'copper_ore', quantity: 10, quality: 'common' },
-        { item_id: 'iron_ore', quantity: 10, quality: 'common' },
-      ],
+      inventory: [stack('copper_ore', 10, 'common'), stack('iron_ore', 10, 'common')],
       gold: 1000,
     });
 

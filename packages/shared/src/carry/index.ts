@@ -28,6 +28,15 @@ export interface StackItemInstance {
   uid: string;
   item_id: string;
   quantity: number;
+  /**
+   * 品质，缺省视为 'common'。
+   *
+   * 为什么堆叠物也要带 quality（对《04 §2.5》的一处极小偏离）？
+   *   市场模块整套交易逻辑按 (item_id, quality) 匹配与计价；
+   *   若去掉该字段，同物品不同品质会被强行合并成一个堆叠，交易能力直接塌陷。
+   *   之所以可选：P0 的采集产出恒为 common，不写该字段可让旧数据保持精简。
+   */
+  quality?: Quality;
 }
 
 /** 装备实例：不可堆叠，一件一 uid */
@@ -49,6 +58,14 @@ export interface EquipmentInstance {
 }
 
 export type CarriedItem = StackItemInstance | EquipmentInstance;
+
+/** 堆叠物的品质缺省值：读取侧统一走 stackQuality()，避免各处重复写 `?? 'common'` */
+export const DEFAULT_STACK_QUALITY: Quality = 'common';
+
+/** 归一化读取堆叠物品质；字段缺失按 common，与市场/任务等消费方的默认一致 */
+export function stackQuality(item: StackItemInstance): Quality {
+  return item.quality ?? DEFAULT_STACK_QUALITY;
+}
 
 /* ------------------------------------------------------------------ */
 /* uid 生成                                                              */
@@ -109,22 +126,128 @@ export function toEquipmentInstance(eq: Equipment, uid: string): EquipmentInstan
 /**
  * idle 引擎的 ItemStack[] → 带 uid 的堆叠实例数组。
  *
+ * 为什么条目允许携带 quality？
+ *   市场按 (item_id, quality) 交易，落盘前必须把品质带进堆叠实例；
+ *   缺省不写字段（P0 采集产出恒为 common），保持旧数据形态精简。
+ *
  * uidFactory 可注入是为了让 e2e / 回放能产出确定 uid，避免断言依赖随机值。
  */
 export function toStackItems(
-  stacks: ReadonlyArray<{ item_id: string; quantity: number }>,
+  stacks: ReadonlyArray<{ item_id: string; quantity: number; quality?: Quality }>,
   uidFactory: () => string = newUid,
 ): StackItemInstance[] {
-  return stacks.map((s) => ({
-    kind: 'stack',
-    uid: uidFactory(),
-    item_id: s.item_id,
-    quantity: s.quantity,
-  }));
+  return stacks.map((s) => {
+    const instance: StackItemInstance = {
+      kind: 'stack',
+      uid: uidFactory(),
+      item_id: s.item_id,
+      quantity: s.quantity,
+    };
+    if (s.quality !== undefined) instance.quality = s.quality;
+    return instance;
+  });
 }
 
 /** 文档口径别名：结算产出统一补 uid 的入口，语义与 toStackItems 完全一致 */
 export const toCarriedItems = toStackItems;
+
+/**
+ * 结算后要合并回容器的堆叠条目：idle 引擎返回的 ItemStack，可能带品质。
+ */
+export interface SettledStack {
+  item_id: string;
+  quantity: number;
+  quality?: Quality;
+}
+
+/**
+ * 把 idle 结算结果合并回 CarriedItem[]，并尽量复用已有堆叠的 uid。
+ *
+ * 为什么需要它而不是直接 toCarriedItems(settled) 全量重发 uid？
+ *   每次结算换 uid 会让前端按 uid 做 key 的背包列表整片卸载重挂载，
+ *   既丢滚动/动画状态，也让后端落盘数据在无变化时仍然"看起来变了"。
+ *   复用 (item_id, quality) 相同实例的 uid，只有数量变化时 uid 保持稳定，
+ *   前端只需更新数字，新增堆叠才分配新 uid。
+ *
+ * 规则：
+ *   - 装备实例原样保留（结算引擎不接触装备）；
+ *   - 堆叠物逐条匹配现有同 (item_id, quality) 实例，命中则沿用其 uid 并就地改数量；
+ *   - 现有实例在结算结果里消失视为被消耗，随输出删除；
+ *   - 结算结果里多出的堆叠（拆叠/新产出）分配新 uid 追加到末尾。
+ */
+export function mergeSettledStacks(
+  current: ReadonlyArray<CarriedItem>,
+  settled: ReadonlyArray<SettledStack>,
+  uidFactory: () => string = newUid,
+): CarriedItem[] {
+  // 尚未被认领的结算条目；每条只能复用一次 uid，避免两格抢占同一 uid
+  const pending = settled.map((s) => ({ ...s, claimed: false }));
+  const next: CarriedItem[] = [];
+
+  for (const item of current) {
+    if (item.kind === 'equipment') {
+      next.push(item);
+      continue;
+    }
+    const quality = stackQuality(item);
+    const match = pending.find(
+      (s) => !s.claimed && s.item_id === item.item_id && (s.quality ?? DEFAULT_STACK_QUALITY) === quality,
+    );
+    if (!match) continue; // 结算结果中已不存在 = 被消耗
+    match.claimed = true;
+    next.push({ ...item, quantity: match.quantity });
+  }
+
+  for (const item of pending) {
+    if (item.claimed || item.quantity <= 0) continue;
+    next.push({
+      kind: 'stack',
+      uid: uidFactory(),
+      item_id: item.item_id,
+      quantity: item.quantity,
+      ...(item.quality !== undefined ? { quality: item.quality } : {}),
+    });
+  }
+
+  return next;
+}
+
+/**
+ * 向容器追加一批堆叠物（掉落、任务奖励、市场退回）。
+ *
+ * 与 mergeSettledStacks 的区别：这里只做"加法"，
+ * 不会因为条目未出现在 added 中而删除既有堆叠——
+ * 战斗掉落/发奖是增量事件，不是对容器的完整快照。
+ * 命中同 (item_id, quality) 时合并进第一格并保留其 uid。
+ */
+export function addStacksToCarried(
+  current: ReadonlyArray<CarriedItem>,
+  added: ReadonlyArray<SettledStack>,
+  uidFactory: () => string = newUid,
+): CarriedItem[] {
+  const next = [...current];
+  for (const add of added) {
+    if (add.quantity <= 0) continue;
+    const quality = add.quality ?? DEFAULT_STACK_QUALITY;
+    const index = next.findIndex(
+      (item) => item.kind === 'stack' && item.item_id === add.item_id && stackQuality(item) === quality,
+    );
+    if (index >= 0) {
+      const existed = next[index] as StackItemInstance;
+      next[index] = { ...existed, quantity: existed.quantity + add.quantity };
+      continue;
+    }
+    const instance: StackItemInstance = {
+      kind: 'stack',
+      uid: uidFactory(),
+      item_id: add.item_id,
+      quantity: add.quantity,
+    };
+    if (add.quality !== undefined) instance.quality = add.quality;
+    next.push(instance);
+  }
+  return next;
+}
 
 /* ------------------------------------------------------------------ */
 /* 装备规则（前后端共用，前端拖拽高亮与后端校验同一份判断）                    */

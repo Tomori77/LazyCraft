@@ -6,27 +6,21 @@ import {
 import { Prisma } from '../lib/prisma-client/client.js';
 import {
   FOODS,
+  addStacksToCarried,
   findEnemyById,
   findFoodById,
   findLootTableById,
+  newUid,
   playerStats,
   simulateCombat,
+  toEquipmentInstance,
+  type CarriedItem,
   type CombatReport,
   type Enemy,
-  type Equipment,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
 import { BroadcastService } from '../broadcast/broadcast.service.js';
 import type { SaveData, SaveDataV2 } from '../save/save-shape.js';
-
-/**
- * 存档里背包格的形状（与 ActionService 的对齐：允许带 quality 等额外字段）
- */
-interface InventoryStack {
-  item_id: string;
-  quantity: number;
-  quality?: string;
-}
 
 /**
  * 战斗服务（task-18）
@@ -172,12 +166,13 @@ export class CombatService {
     // 战斗模块先把读取点留出来，确保存档 schema 就位后只需改这一处
     const equipmentStats = { attack: 0, defense: 0, hp: 0 };
 
-    // 食物存量：遍历背包，把"在 FOODS 表里登记过的物品"聚成 food map
-    const inventory = Array.isArray(data.inventory) ? (data.inventory as InventoryStack[]) : [];
+    // 食物存量：只遍历堆叠实例，把"在 FOODS 表里登记过的物品"聚成 food map
+    const inventory = Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [];
     const food: Record<string, number> = {};
-    for (const stack of inventory) {
-      if (!findFoodById(stack.item_id)) continue;
-      food[stack.item_id] = (food[stack.item_id] ?? 0) + (typeof stack.quantity === 'number' ? stack.quantity : 0);
+    for (const item of inventory) {
+      if (item?.kind !== 'stack') continue;
+      if (!findFoodById(item.item_id)) continue;
+      food[item.item_id] = (food[item.item_id] ?? 0) + (typeof item.quantity === 'number' ? item.quantity : 0);
     }
 
     return simulateCombat({
@@ -204,54 +199,48 @@ export class CombatService {
   private applyReport(data: SaveData | SaveDataV2, report: CombatReport, enemy: Enemy): SaveDataV2 {
     let next: SaveDataV2 = { ...(data as SaveDataV2), current_combat: null };
 
-    // 1. 扣食物：从后往前扣（与 idle 的向左压缩相反——保留背包前段的视觉稳定性）
+    // 1. 扣食物：从后往前扣（与 idle 的向左压缩相反——保留背包前段的视觉稳定性）；
+    //    就地改数量以保留 uid，装备实例原样带过
     const consumedFood = report.food_consumed;
     if (Object.keys(consumedFood).length > 0) {
-      const inv = Array.isArray(next.inventory) ? [...(next.inventory as InventoryStack[])] : [];
+      const inv = Array.isArray(next.inventory) ? [...(next.inventory as CarriedItem[])] : [];
       for (const [foodId, qty] of Object.entries(consumedFood)) {
         let remaining = qty;
         for (let i = inv.length - 1; i >= 0 && remaining > 0; i -= 1) {
-          const stack = inv[i];
-          if (stack.item_id !== foodId) continue;
-          const take = Math.min(stack.quantity, remaining);
-          stack.quantity -= take;
+          const item = inv[i];
+          if (item.kind !== 'stack' || item.item_id !== foodId) continue;
+          const take = Math.min(item.quantity, remaining);
+          inv[i] = { ...item, quantity: item.quantity - take };
           remaining -= take;
         }
       }
-      next = { ...next, inventory: inv.filter((s) => s.quantity > 0) };
+      next = {
+        ...next,
+        inventory: inv.filter((item) => item.kind !== 'stack' || item.quantity > 0),
+      };
     }
 
-    // 2. 结算掉落物：直接掉物品入背包；装备实例暂存到 abstract_resources 的 pending 队列
+    // 2. 结算掉落物：物品与装备实例都直接进背包（同一容器混装）
     if (report.end.kind === 'victory') {
+      let inv = Array.isArray(next.inventory) ? [...(next.inventory as CarriedItem[])] : [];
+
       const items = report.item_drops;
       if (Object.keys(items).length > 0) {
-        const inv = Array.isArray(next.inventory) ? (next.inventory as InventoryStack[]).map((s) => ({ ...s })) : [];
-        for (const [itemId, qty] of Object.entries(items)) {
-          const existed = inv.find((s) => s.item_id === itemId);
-          if (existed) {
-            existed.quantity += qty;
-          } else {
-            inv.push({ item_id: itemId, quantity: qty, quality: 'common' });
-          }
-        }
-        next = { ...next, inventory: inv };
+        // 战斗掉落的材料恒为 common（与旧口径一致）
+        inv = addStacksToCarried(
+          inv,
+          Object.entries(items).map(([item_id, quantity]) => ({ item_id, quantity, quality: 'common' as const })),
+        );
       }
-      // 装备实例（含词缀 / 最终属性快照）：暂存到 abstract_resources.combat_equipment_drops
-      // 为什么放 abstract_resources 而不是 equipment：
-      //   equipment 槽位是"已穿戴"，这里是"还没决定穿不穿"的战利品；
-      //   存到 abstract_resources 让前端能渲染"拾取到装备"事件而不占用穿戴槽。
-      if (report.equipment_drops.length > 0) {
-        next = {
-          ...next,
-          abstract_resources: {
-            ...(next.abstract_resources as Record<string, unknown>),
-            combat_equipment_drops: [
-              ...(((next.abstract_resources as Record<string, unknown>)?.combat_equipment_drops as Equipment[] | undefined) ?? []),
-              ...report.equipment_drops,
-            ],
-          },
-        };
+
+      // 装备实例（含词缀 / 属性快照）：落盘前经 toEquipmentInstance 补 slot / required_level；
+      // 模板缺失时返回 null（配置错误安全出口），丢弃该件但不影响本次战斗结算
+      for (const eq of report.equipment_drops) {
+        const instance = toEquipmentInstance(eq, newUid());
+        if (instance) inv.push(instance);
       }
+
+      next = { ...next, inventory: inv };
     }
 
     // 3. 累加攻击经验：胜利才有（与 simulateCombat 的 exp_gained 对齐）

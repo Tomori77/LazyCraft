@@ -5,6 +5,8 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from './../src/app.module.js';
+import { CURRENT_SAVE_VERSION } from './../src/save/save-shape.js';
+import { stack, v3Data } from './save-fixtures.js';
 import { ACTION_BURN_CHARCOAL, ACTION_MINE_IRON, exp } from '@lazycraft/shared';
 
 // 与 save.e2e-spec 同一风格：每个测试文件一个应用实例，共享数据库连接
@@ -38,13 +40,13 @@ async function ensureSave(token: string) {
   await request(app.getHttpServer()).get('/api/save').set('Authorization', `Bearer ${token}`).expect(200);
 }
 
-/** 用 save 接口直接覆写 data（存档已升级到 v2：写入时必须携带 current_combat） */
+/** 用 save 接口直接覆写 data（存档已升级到 v3：写入时携带 storage/容量） */
 async function writeSave(token: string, data: Record<string, unknown>) {
   await request(app.getHttpServer())
     .post('/api/save')
     .set('Authorization', `Bearer ${token}`)
-    // 为什么 version=2：服务端懒创建已是 v2，写路径要求客户端版本与 DB 版本严格一致
-    .send({ version: 2, data })
+    // 为什么 version=CURRENT_SAVE_VERSION：服务端懒创建已是 v3，写路径要求客户端版本与 DB 版本严格一致
+    .send({ version: CURRENT_SAVE_VERSION, data })
     .expect(201);
 }
 
@@ -151,17 +153,11 @@ describe('/api/action (e2e)', () => {
     await ensureSave(token);
 
     // 直接构造存档：给玩家 1 级烧火经验（1 级）+ 5 个枫木
-    // 为什么必须显式带 current_combat:null：v2 存档结构新增该字段；
-    // write 走整包覆盖（非合并），缺这个键会让 DB 里留下"半 v1 半 v2"的畸形存档。
-    await writeSave(token, {
+    // 用 v3Data 保证 current_combat/storage/容量等 v3 字段齐全——write 走整包覆盖（非合并）
+    await writeSave(token, v3Data({
       skills: { firemaking: { exp: exp(1) } },
-      inventory: [{ item_id: 'maple_log', quantity: 5 }],
-      equipment: {},
-      abstract_resources: {},
-      current_action: null,
-      current_combat: null,
-      settings: {},
-    });
+      inventory: [stack('maple_log', 5)],
+    }));
 
     // 开始烧木炭
     await request(app.getHttpServer())
@@ -180,12 +176,17 @@ describe('/api/action (e2e)', () => {
     expect(stopRes.body.report.ticks).toBe(1);
     expect(stopRes.body.report.consumed).toEqual([{ item_id: 'maple_log', amount: 1 }]);
 
-    // 背包从 5 变成 4
+    // 背包从 5 变成 4，且复用原堆叠 uid（kind/uid 保留）
     const saveRes = await request(app.getHttpServer())
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(saveRes.body.data.inventory).toEqual([{ item_id: 'maple_log', quantity: 4 }]);
+    expect(saveRes.body.data.inventory).toHaveLength(1);
+    expect(saveRes.body.data.inventory[0]).toMatchObject({
+      kind: 'stack',
+      item_id: 'maple_log',
+      quantity: 4,
+    });
     // 烧火经验被累积（burn_charcoal.exp = 5）
     expect(saveRes.body.data.skills.firemaking.exp).toBe(exp(1) + 5);
   });

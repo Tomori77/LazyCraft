@@ -6,7 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../lib/prisma-client/client.js';
-import { ITEMS, type Item, type ItemStack, type Quality } from '@lazycraft/shared';
+import {
+  ITEMS,
+  addStacksToCarried,
+  stackQuality,
+  type CarriedItem,
+  type Item,
+  type Quality,
+  type StackItemInstance,
+} from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
 import type { SaveData } from '../save/save-shape.js';
 
@@ -47,15 +55,6 @@ const MAX_PAGE_SIZE = 50;
 const GOLD_KEY = 'gold';
 
 /* ------------------------------------------------------------------ */
-/* 存档内物品形状                                                      */
-/* ------------------------------------------------------------------ */
-
-interface InventoryStack extends ItemStack {
-  /** 品质缺省按 'common'，与 types.ts 默认一致 */
-  quality?: Quality;
-}
-
-/* ------------------------------------------------------------------ */
 /* 内部小工具（不暴露给外面）                                          */
 /* ------------------------------------------------------------------ */
 
@@ -76,42 +75,45 @@ function writeGold(data: SaveData, gold: number): SaveData {
   };
 }
 
-/** 从背包扣除 (item_id, quality, qty)；不够则抛 403（不允许部分扣） */
+/**
+ * 从背包扣除 (item_id, quality, qty)；不够则抛 403（不允许部分扣）。
+ *
+ * 只操作堆叠实例，装备实例原样保留；命中堆叠就地改数量以保留 uid。
+ */
 function removeItems(data: SaveData, itemId: string, quality: Quality, qty: number): SaveData {
-  const inv = Array.isArray(data.inventory) ? (data.inventory as InventoryStack[]) : [];
+  const inv = Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [];
   const total = inv
-    .filter((s) => s.item_id === itemId && (s.quality ?? 'common') === quality)
+    .filter((s): s is StackItemInstance => s.kind === 'stack')
+    .filter((s) => s.item_id === itemId && stackQuality(s) === quality)
     .reduce((sum, s) => sum + s.quantity, 0);
   if (total < qty) {
     throw new ForbiddenException(`物品不足：${itemId}(${quality}) 需要 ${qty}，当前 ${total}`);
   }
   let remaining = qty;
-  const next: InventoryStack[] = [];
-  for (const stack of inv) {
-    if (remaining <= 0 || stack.item_id !== itemId || (stack.quality ?? 'common') !== quality) {
-      next.push(stack);
+  const next: CarriedItem[] = [];
+  for (const item of inv) {
+    if (
+      remaining <= 0 ||
+      item.kind !== 'stack' ||
+      item.item_id !== itemId ||
+      stackQuality(item) !== quality
+    ) {
+      next.push(item);
       continue;
     }
-    const take = Math.min(stack.quantity, remaining);
-    const left = stack.quantity - take;
+    const take = Math.min(item.quantity, remaining);
+    const left = item.quantity - take;
     remaining -= take;
-    if (left > 0) next.push({ ...stack, quantity: left });
+    if (left > 0) next.push({ ...item, quantity: left });
   }
   return { ...data, inventory: next };
 }
 
-/** 向背包加物品；同 (item_id, quality) 优先合并进第一格，否则追加新格 */
+/** 向背包加物品；同 (item_id, quality) 优先合并进第一格，否则追加新格（补 uid/kind） */
 function addItems(data: SaveData, itemId: string, quality: Quality, qty: number): SaveData {
   if (qty <= 0) return data;
-  const inv = Array.isArray(data.inventory) ? (data.inventory as InventoryStack[]) : [];
-  const next = inv.map((s) => ({ ...s }));
-  const existed = next.find((s) => s.item_id === itemId && (s.quality ?? 'common') === quality);
-  if (existed) {
-    existed.quantity += qty;
-  } else {
-    next.push({ item_id: itemId, quantity: qty, quality });
-  }
-  return { ...data, inventory: next };
+  const inv = Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [];
+  return { ...data, inventory: addStacksToCarried(inv, [{ item_id: itemId, quantity: qty, quality }]) };
 }
 
 /** 找到物品配置；未配置 = 不可交易 */

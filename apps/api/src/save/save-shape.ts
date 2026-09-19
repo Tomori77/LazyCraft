@@ -6,8 +6,14 @@
  *   后续 task-04+ 的技能结算 / 背包系统会基于这里导出的类型消费 data。
  */
 
+import type { CarriedItem, EquipmentInstance } from '@lazycraft/shared';
+
 /** 存档版本号：每次存档结构变更必须 +1，并补齐对应的 migration 脚本 */
-export const CURRENT_SAVE_VERSION = 2;
+export const CURRENT_SAVE_VERSION = 3;
+
+/** 容量默认值：背包与仓库的初始格数（DLC 可扩展） */
+export const DEFAULT_INVENTORY_CAPACITY = 100;
+export const DEFAULT_STORAGE_CAPACITY = 500;
 
 /**
  * 存档中"正在执行的动作"的形状
@@ -33,10 +39,20 @@ export interface ActiveActionData {
 export interface SaveData {
   /** 各技能的经验/等级，key 为 skill_id */
   skills: Record<string, unknown>;
-  /** 物品背包（含堆叠数量、品质等） */
-  inventory: unknown[];
-  /** 当前穿戴的装备，key 为装备槽位 */
-  equipment: Record<string, unknown>;
+  /**
+   * 物品背包：堆叠物与装备实例混装的容器。
+   *
+   * v3 起由 `{item_id,quantity}[]` 升级为 `CarriedItem[]`——
+   * 装备实例（品质/词缀/属性快照）此前无处安放，无法支持"从背包拖装备"。
+   */
+  inventory: CarriedItem[];
+  /**
+   * 当前穿戴的装备：槽位 → 实例（空槽为 null）。
+   *
+   * 类型保持宽松以兼容历史空档（`{}`），但语义上应为
+   * `Record<EquipmentSlot, EquipmentInstance | null>`。
+   */
+  equipment: Record<string, EquipmentInstance | null>;
   /** 抽象资源（货币、体力等不占用格子的数值资源） */
   abstract_resources: Record<string, unknown>;
   /** 当前正在执行的动作，null = 空闲 */
@@ -59,8 +75,23 @@ export interface SaveDataV2 extends SaveData {
   current_combat: { enemy_id: string; started_at: number } | null;
 }
 
-/** 生成一份"空白存档"——新玩家首次 GET 时服务端懒创建的初始形态（v2） */
-export function createEmptySaveData(): SaveDataV2 {
+/**
+ * 存档 data 字段的 v3 结构：容器模型落地（《04 §2.6》）。
+ *
+ * 新增 `storage`（仓库）与两个容量字段；`inventory` 在 v3 起即为 CarriedItem[]，
+ * 因此这里只是把 v2 已具备的字段补上容器的精确类型。
+ */
+export interface SaveDataV3 extends SaveDataV2 {
+  /** 仓库：与背包同构的容器，初始容量更大 */
+  storage: CarriedItem[];
+  /** 背包格数上限（DLC 可扩展） */
+  inventory_capacity: number;
+  /** 仓库格数上限（DLC 可扩展） */
+  storage_capacity: number;
+}
+
+/** 生成一份"空白存档"——新玩家首次 GET 时服务端懒创建的初始形态（v3） */
+export function createEmptySaveData(): SaveDataV3 {
   return {
     skills: {},
     inventory: [],
@@ -69,5 +100,8 @@ export function createEmptySaveData(): SaveDataV2 {
     current_action: null,
     current_combat: null,
     settings: {},
+    storage: [],
+    inventory_capacity: DEFAULT_INVENTORY_CAPACITY,
+    storage_capacity: DEFAULT_STORAGE_CAPACITY,
   };
 }

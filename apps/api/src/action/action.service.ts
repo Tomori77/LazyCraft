@@ -7,19 +7,32 @@ import {
 import { Prisma } from '../lib/prisma-client/client.js';
 import {
   levelFromExp,
+  mergeSettledStacks,
   settle,
+  type CarriedItem,
   type ItemStack,
   type PlayerState,
+  type Quality,
+  type SettledStack,
   type SkillAction,
   type SettleReport,
+  type StackItemInstance,
   OFFLINE_CAP_MS,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
 import { ContentService } from '../content/content.service.js';
-import type { ActiveActionData, SaveData } from '../save/save-shape.js';
+import {
+  DEFAULT_INVENTORY_CAPACITY,
+  type ActiveActionData,
+  type SaveData,
+  type SaveDataV3,
+} from '../save/save-shape.js';
 
-/** 背包格子形状：存档 data.inventory 与 idle 引擎 ItemStack 保持一致 */
-type Inventory = ItemStack[];
+/**
+ * 引擎 ItemStack 的本地扩展：quality 在类型上不属于 ItemStack，
+ * 但会随 settle 的浅拷贝原样保留，合并回容器时需要它来正确匹配堆叠。
+ */
+type EngineStack = ItemStack & { quality?: Quality };
 
 interface SkillsMap {
   [skillId: string]: { exp?: number } | undefined;
@@ -66,6 +79,10 @@ export class ActionService {
   /**
    * 把存档 data 切成 idle 引擎认识的 PlayerState。
    * 存档是 JSONB，字段可能缺失（比如老存档），全部走兜底默认值。
+   *
+   * 为什么只取 kind:'stack'？
+   *   idle 引擎按"格"处理 `ItemStack`；装备实例不参与挂机产出/消耗，
+   *   混进去会让引擎把它当成 quantity 未定义的怪物格。装备在 stop 合并阶段原样保留。
    */
   private toPlayerState(data: SaveData): PlayerState {
     const skills = (data.skills ?? {}) as SkillsMap;
@@ -75,14 +92,31 @@ export class ActionService {
     }
     const current = data.current_action as ActiveActionData | null;
     return {
-      inventory: Array.isArray(data.inventory) ? (data.inventory as Inventory) : [],
-      inventory_capacity: 100, // 设计清单：背包 100 格，DLC 可扩展
+      inventory: this.stacksOf(data),
+      inventory_capacity:
+        typeof (data as Partial<SaveDataV3>).inventory_capacity === 'number'
+          ? (data as Partial<SaveDataV3>).inventory_capacity!
+          : DEFAULT_INVENTORY_CAPACITY,
       skill_exp,
       // 引擎只认 action_id / started_at；skill_id 是存档层的冗余，不传给引擎
       current_action: current
         ? { action_id: current.action_id, started_at: current.started_at }
         : null,
     };
+  }
+
+  /**
+   * 从存档 inventory 提取堆叠物并转成引擎 ItemStack；装备实例不参与挂机。
+   *
+   * 为什么把 quality 也带上（引擎类型虽不含该字段）？
+   *   settle 内部只做 `{...s}` 浅拷贝与就地数量增减，额外属性会随原格保留；
+   *   若丢掉，合并回容器时 rare 堆叠会匹配不上而被误删——直接违反"不许丢数据"。
+   */
+  private stacksOf(data: SaveData): EngineStack[] {
+    const inventory = Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [];
+    return inventory
+      .filter((item): item is StackItemInstance => item?.kind === 'stack')
+      .map((s) => ({ item_id: s.item_id, quantity: s.quantity, quality: s.quality }));
   }
 
   /** 从存档 skills 读出玩家某技能等级（无记录按 1 级） */
@@ -153,10 +187,17 @@ export class ActionService {
       now,
     });
 
+    // 结算后的引擎背包合并回容器：优先复用同 (item_id, quality) 已有实例的 uid，
+    // 避免每次结算都换 uid 导致前端背包整片重挂载
+    const inventory = mergeSettledStacks(
+      Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+      player.inventory as SettledStack[],
+    );
+
     // 把结算后的引擎状态写回存档字段；current_action 置空由引擎保证，这里再显式一次兜底
     const nextData: SaveData = {
       ...data,
-      inventory: player.inventory,
+      inventory,
       skills: this.mergeExpIntoSkills(data, player.skill_exp),
       current_action: null,
     };
@@ -229,10 +270,10 @@ export class ActionService {
   }
 
   private assertMaterialsEnough(data: SaveData, action: SkillAction) {
-    const inventory = Array.isArray(data.inventory) ? (data.inventory as Inventory) : [];
     for (const [itemId, qty] of Object.entries(action.input_items)) {
       if (qty <= 0) continue;
-      const total = inventory
+      // 材料只统计堆叠实例，装备不参与制作
+      const total = this.stacksOf(data)
         .filter((s) => s.item_id === itemId)
         .reduce((sum, s) => sum + s.quantity, 0);
       if (total < qty) {

@@ -9,13 +9,18 @@ import { describe, expect, it } from 'vitest';
 
 import {
   EQUIP_FAILURE_REASONS,
+  addStacksToCarried,
   canEquip,
+  mergeSettledStacks,
   newUid,
+  stackQuality,
   sumEquipmentStats,
   toCarriedItems,
   toEquipmentInstance,
   toStackItems,
+  type CarriedItem,
   type EquipmentInstance,
+  type StackItemInstance,
 } from './index.js';
 import {
   ACTIONS,
@@ -158,6 +163,151 @@ describe('toStackItems / toCarriedItems', () => {
     ]);
     expect(result[0].uid).toBeTruthy();
     expect(result[0].uid).not.toBe(result[1].uid);
+  });
+
+  it('保留条目上的 quality；缺省时不写该字段', () => {
+    const [withQuality, withoutQuality] = toStackItems(
+      [
+        { item_id: 'copper_ore', quantity: 3, quality: 'rare' },
+        { item_id: 'wood', quantity: 1 },
+      ],
+      () => 'fixed',
+    );
+    expect(withQuality.quality).toBe('rare');
+    expect(withoutQuality).not.toHaveProperty('quality');
+  });
+});
+
+describe('stackQuality', () => {
+  it('缺失时按 common 归一化', () => {
+    const stack: StackItemInstance = { kind: 'stack', uid: 'u', item_id: 'wood', quantity: 1 };
+    expect(stackQuality(stack)).toBe('common');
+  });
+
+  it('显式品质原样返回', () => {
+    expect(stackQuality({ kind: 'stack', uid: 'u', item_id: 'wood', quantity: 1, quality: 'epic' })).toBe('epic');
+  });
+});
+
+describe('mergeSettledStacks', () => {
+  const equip: EquipmentInstance = {
+    kind: 'equipment',
+    uid: 'eq-1',
+    template_id: 'short_sword',
+    quality: 'common',
+    prefix_affix: null,
+    suffix_affix: null,
+    display_name: '短剑',
+    final_stats: { attack: 2, defense: 0, hp: 0 },
+    slot: 'main_hand',
+    required_level: 1,
+  };
+
+  it('同 (item_id, quality) 复用已有 uid，数量就地变化', () => {
+    const current: CarriedItem[] = [
+      { kind: 'stack', uid: 'keep-A', item_id: 'copper_ore', quantity: 3 },
+      { kind: 'stack', uid: 'keep-B', item_id: 'maple_log', quantity: 5 },
+    ];
+    const next = mergeSettledStacks(
+      current,
+      [
+        { item_id: 'copper_ore', quantity: 7 },
+        { item_id: 'maple_log', quantity: 2 },
+      ],
+      () => 'new-uid',
+    );
+    expect(next).toEqual([
+      { kind: 'stack', uid: 'keep-A', item_id: 'copper_ore', quantity: 7 },
+      { kind: 'stack', uid: 'keep-B', item_id: 'maple_log', quantity: 2 },
+    ]);
+  });
+
+  it('被消耗的堆叠消失；结算新增的堆叠分配新 uid', () => {
+    const current: CarriedItem[] = [
+      { kind: 'stack', uid: 'keep-A', item_id: 'copper_ore', quantity: 3 },
+      { kind: 'stack', uid: 'gone', item_id: 'maple_log', quantity: 5 },
+    ];
+    const next = mergeSettledStacks(
+      current,
+      [
+        { item_id: 'copper_ore', quantity: 1 },
+        { item_id: 'raw_stone', quantity: 4 },
+      ],
+      () => 'brand-new',
+    );
+    expect(next).toEqual([
+      { kind: 'stack', uid: 'keep-A', item_id: 'copper_ore', quantity: 1 },
+      { kind: 'stack', uid: 'brand-new', item_id: 'raw_stone', quantity: 4 },
+    ]);
+    // maple_log（uid=gone）不在结算结果中 → 被消耗，不应出现
+    expect(next.some((i) => i.uid === 'gone')).toBe(false);
+  });
+
+  it('装备实例原样保留且不受堆叠合并影响', () => {
+    const current: CarriedItem[] = [
+      equip,
+      { kind: 'stack', uid: 'keep-A', item_id: 'copper_ore', quantity: 3 },
+    ];
+    const next = mergeSettledStacks(current, [{ item_id: 'copper_ore', quantity: 9 }], () => 'x');
+    expect(next[0]).toBe(equip);
+    expect(next[1]).toEqual({ kind: 'stack', uid: 'keep-A', item_id: 'copper_ore', quantity: 9 });
+  });
+
+  it('不同品质不互相复用 uid', () => {
+    const current: CarriedItem[] = [
+      { kind: 'stack', uid: 'common-A', item_id: 'copper_ore', quantity: 3 },
+      { kind: 'stack', uid: 'rare-A', item_id: 'copper_ore', quantity: 1, quality: 'rare' },
+    ];
+    const next = mergeSettledStacks(
+      current,
+      [
+        { item_id: 'copper_ore', quantity: 4, quality: 'rare' },
+        { item_id: 'copper_ore', quantity: 2 },
+      ],
+      () => 'new',
+    );
+    const rare = next.find((i) => i.kind === 'stack' && i.quality === 'rare') as StackItemInstance;
+    const common = next.find(
+      (i) => i.kind === 'stack' && (i as StackItemInstance).quality === undefined,
+    ) as StackItemInstance;
+    expect(rare.uid).toBe('rare-A');
+    expect(common.uid).toBe('common-A');
+  });
+
+  it('全新堆叠按传入 quality 落盘', () => {
+    const next = mergeSettledStacks([], [{ item_id: 'copper_ore', quantity: 2, quality: 'epic' }], () => 'u1');
+    expect(next).toEqual([
+      { kind: 'stack', uid: 'u1', item_id: 'copper_ore', quantity: 2, quality: 'epic' },
+    ]);
+  });
+});
+
+describe('addStacksToCarried', () => {
+  it('同 (item_id, quality) 合并进第一格并保留 uid', () => {
+    const current: CarriedItem[] = [
+      { kind: 'stack', uid: 'keep', item_id: 'copper_ore', quantity: 3 },
+      { kind: 'equipment', uid: 'eq', template_id: 'short_sword', quality: 'common', prefix_affix: null, suffix_affix: null, display_name: '短剑', final_stats: { attack: 2, defense: 0, hp: 0 }, slot: 'main_hand', required_level: 1 },
+    ];
+    const next = addStacksToCarried(current, [{ item_id: 'copper_ore', quantity: 2 }], () => 'new');
+    expect(next[0]).toEqual({ kind: 'stack', uid: 'keep', item_id: 'copper_ore', quantity: 5 });
+    expect(next[1]).toBe(current[1]);
+  });
+
+  it('不同品质新增独立格；不删除既有堆叠', () => {
+    const current: CarriedItem[] = [{ kind: 'stack', uid: 'keep', item_id: 'copper_ore', quantity: 3 }];
+    const next = addStacksToCarried(
+      current,
+      [{ item_id: 'copper_ore', quantity: 1, quality: 'rare' }],
+      () => 'rare-uid',
+    );
+    expect(next).toEqual([
+      { kind: 'stack', uid: 'keep', item_id: 'copper_ore', quantity: 3 },
+      { kind: 'stack', uid: 'rare-uid', item_id: 'copper_ore', quantity: 1, quality: 'rare' },
+    ]);
+  });
+
+  it('quantity<=0 的条目被忽略', () => {
+    expect(addStacksToCarried([], [{ item_id: 'wood', quantity: 0 }], () => 'x')).toEqual([]);
   });
 });
 

@@ -5,6 +5,8 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from './../src/app.module.js';
+import { CURRENT_SAVE_VERSION, createEmptySaveData } from './../src/save/save-shape.js';
+import { stack } from './save-fixtures.js';
 
 // 与 action.e2e-spec 同一风格：每个测试文件一个应用实例，共享数据库连接
 let app: INestApplication<App>;
@@ -35,23 +37,16 @@ async function registerAndLogin() {
 const authed = (token: string, method: 'get' | 'post', path: string) =>
   request(app.getHttpServer())[method](path).set('Authorization', `Bearer ${token}`);
 
-/** 空存档 data：与 save-shape.ts 的 createEmptySaveData 保持同构（v2 含 current_combat），另加 quests 字段留空 */
+/** 空存档 data：以 v3 空档为基座，另加 quests 字段等扩展 */
 function emptyData(extra: Record<string, unknown> = {}) {
-  return {
-    skills: {},
-    inventory: [],
-    equipment: {},
-    abstract_resources: {},
-    current_action: null,
-    current_combat: null,
-    settings: {},
-    ...extra,
-  };
+  return { ...createEmptySaveData(), ...extra };
 }
 
 async function writeSave(token: string, data: Record<string, unknown>) {
-  // 为什么 version=2：服务端懒创建已直接产出 v2，写路径要求与 DB 版本严格一致
-  await authed(token, 'post', '/api/save').send({ version: 2, data }).expect(201);
+  // 为什么 version=CURRENT_SAVE_VERSION：服务端懒创建已直接产出 v3，写路径要求与 DB 版本严格一致
+  await authed(token, 'post', '/api/save')
+    .send({ version: CURRENT_SAVE_VERSION, data })
+    .expect(201);
 }
 
 describe('/api/quests (e2e)', () => {
@@ -112,8 +107,12 @@ describe('/api/quests (e2e)', () => {
 
     // 8. 背包里应有 5 个枫木 + 结算所得的铜矿
     const save = await authed(token, 'get', '/api/save').expect(200);
-    const inventory = (save.body.data.inventory ?? []) as Array<{ item_id: string; quantity: number }>;
-    const maple = inventory.find((s) => s.item_id === 'maple_log');
+    const inventory = (save.body.data.inventory ?? []) as Array<{
+      kind: string;
+      item_id: string;
+      quantity: number;
+    }>;
+    const maple = inventory.find((s) => s.kind === 'stack' && s.item_id === 'maple_log');
     expect(maple?.quantity).toBe(5);
 
     // 9. 主线完成后 list 应包含 3 条日常任务
@@ -135,7 +134,7 @@ describe('/api/quests (e2e)', () => {
 
     // 直接构造背包里有 3 个铜矿，然后领取任务并 claim，再尝试重复 claim
     await writeSave(token, emptyData({
-      inventory: [{ item_id: 'copper_ore', quantity: 3 }],
+      inventory: [stack('copper_ore', 3)],
       quests: {
         main_first_harvest: { accepted_at: Date.now(), baseline: 0, gained: 0, completed: false },
       },
@@ -147,7 +146,7 @@ describe('/api/quests (e2e)', () => {
   it('领取前已有的铜矿不计入 collect 进度（baseline 语义）', async () => {
     const token = await registerAndLogin();
     // 先给玩家发 5 个铜矿，再领取主线任务
-    await writeSave(token, emptyData({ inventory: [{ item_id: 'copper_ore', quantity: 5 }] }));
+    await writeSave(token, emptyData({ inventory: [stack('copper_ore', 5)] }));
     await authed(token, 'post', '/api/quests/main_first_harvest/accept').expect(201);
 
     // baseline = 5，progress = 0
@@ -163,7 +162,7 @@ describe('/api/quests (e2e)', () => {
     // 构造存档：已有枫木 10 根 + 主线已完成（使日常可接）
     await writeSave(token, emptyData({
       skills: { firemaking: { exp: 0 } },
-      inventory: [{ item_id: 'maple_log', quantity: 10 }],
+      inventory: [stack('maple_log', 10)],
       quests: {
         main_first_harvest: { accepted_at: Date.now(), baseline: 0, gained: 3, completed: true },
       },
@@ -179,8 +178,8 @@ describe('/api/quests (e2e)', () => {
     const save = await authed(token, 'get', '/api/save').expect(200);
     await authed(token, 'post', '/api/save')
       .send({
-        // 为什么 version=2：存档 v1→v2 升级后，写路径要求版本与 DB 严格一致
-        version: 2,
+        // 为什么 version=CURRENT_SAVE_VERSION：存档升级到 v3 后，写路径要求版本与 DB 严格一致
+        version: CURRENT_SAVE_VERSION,
         data: {
           ...save.body.data,
           quests: {

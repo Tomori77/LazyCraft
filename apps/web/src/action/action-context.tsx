@@ -3,7 +3,7 @@ import { useAuth } from '../auth/auth.tsx';
 import { apiGet } from '../lib/api.ts';
 import { fetchCurrentAction, stopAction as requestStop, startAction as requestStart } from './api.ts';
 import type { ActiveActionData } from './api.ts';
-import type { SettleReport, ItemDelta } from '@lazycraft/shared';
+import type { SettleReport, ItemDelta, CarriedItem } from '@lazycraft/shared';
 
 /**
  * 活动状态管理（整个 task-11 的中枢）
@@ -45,7 +45,8 @@ interface SkillRecord {
 /** 整个存档 data 字段的最小只读视图：本 hook 只消费这三个字段 */
 interface SaveDataView {
   skills?: Record<string, SkillRecord>;
-  inventory?: Array<{ item_id: string; quantity: number }>;
+  /** v3 起 inventory 混装堆叠物与装备实例；数量聚合只认 kind='stack' */
+  inventory?: CarriedItem[];
   current_action?: ActiveActionData | null;
 }
 
@@ -59,13 +60,14 @@ function readSkillExp(data: SaveDataView | undefined): Record<string, number> {
   return result;
 }
 
-/** 从存档 data 提取背包，按 item_id 汇总数量 */
+/** 从存档 data 提取背包，按 item_id 汇总数量；装备实例不计数 */
 function readInventoryTotals(data: SaveDataView | undefined): Record<string, number> {
   const result: Record<string, number> = {};
   if (!data?.inventory) return result;
-  for (const stack of data.inventory) {
-    if (typeof stack?.item_id !== 'string' || typeof stack?.quantity !== 'number') continue;
-    result[stack.item_id] = (result[stack.item_id] ?? 0) + stack.quantity;
+  for (const item of data.inventory) {
+    if (item?.kind !== 'stack') continue;
+    if (typeof item.item_id !== 'string' || typeof item.quantity !== 'number') continue;
+    result[item.item_id] = (result[item.item_id] ?? 0) + item.quantity;
   }
   return result;
 }

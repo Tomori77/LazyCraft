@@ -3,16 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { addStacksToCarried, type CarriedItem, type StackItemInstance } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
 import type { SaveData } from '../save/save-shape.js';
 import { DAILY_TEMPLATES, findTaskById, MAIN_QUEST, type TaskDef } from './quest-defs.js';
 import type { PlayerQuestRecord, QuestsSaveData } from './quest-types.js';
-
-/** 背包格子形状：与 ActionService 保持一致的读取方式 */
-interface ItemStack {
-  item_id: string;
-  quantity: number;
-}
 
 /**
  * 任务（主线 + 日常）服务
@@ -215,11 +210,12 @@ export class QuestService {
     return quests as Record<string, PlayerQuestRecord>;
   }
 
-  /** 背包里某物品的总数；背包缺失按 0 */
+  /** 背包里某物品的总数（只统计堆叠实例）；背包缺失按 0 */
   private countItem(data: SaveData, itemId: string): number {
-    const inventory = Array.isArray(data.inventory) ? (data.inventory as ItemStack[]) : [];
+    const inventory = Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [];
     return inventory
-      .filter((s) => s?.item_id === itemId)
+      .filter((s): s is StackItemInstance => s?.kind === 'stack')
+      .filter((s) => s.item_id === itemId)
       .reduce((sum, s) => sum + (s.quantity ?? 0), 0);
   }
 
@@ -231,21 +227,15 @@ export class QuestService {
     return record.gained;
   }
 
-  /** 把奖励物品合并进背包：已有堆叠 +N；没有则新增一格 */
-  private addRewardItems(data: SaveData, def: TaskDef): ItemStack[] {
-    const inventory: ItemStack[] = Array.isArray(data.inventory)
-      ? (data.inventory as ItemStack[]).map((s) => ({ ...s }))
+  /** 把奖励物品合并进背包：已有堆叠 +N；没有则新增一格（补 kind/uid） */
+  private addRewardItems(data: SaveData, def: TaskDef): CarriedItem[] {
+    const inventory: CarriedItem[] = Array.isArray(data.inventory)
+      ? [...(data.inventory as CarriedItem[])]
       : [];
-    for (const [itemId, qty] of Object.entries(def.reward.items)) {
-      if (qty <= 0) continue;
-      const existed = inventory.find((s) => s.item_id === itemId);
-      if (existed) {
-        existed.quantity += qty;
-      } else {
-        inventory.push({ item_id: itemId, quantity: qty });
-      }
-    }
-    return inventory;
+    const added = Object.entries(def.reward.items)
+      .filter(([, qty]) => qty > 0)
+      .map(([item_id, quantity]) => ({ item_id, quantity }));
+    return addStacksToCarried(inventory, added);
   }
 
   /** 视图模型：统一返回给前端的任务快照（含进度） */

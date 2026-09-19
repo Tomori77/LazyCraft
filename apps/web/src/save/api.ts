@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from '../lib/api.ts';
 import type { PlayerSettings } from '../settings/settings.ts';
+import type { CarriedItem } from '@lazycraft/shared';
 
 /**
  * 存档 HTTP 客户端
@@ -8,18 +9,19 @@ import type { PlayerSettings } from '../settings/settings.ts';
  * 写入是"整份 data 覆盖 + version 乐观锁"，冲突返回 409。
  */
 
-/** 背包格子形状：与存档 data.inventory、shared 包 idle 引擎 ItemStack 一致 */
-export interface InventoryStack {
-  item_id: string;
-  quantity: number;
-}
+/**
+ * 背包格子形状：v3 起为 CarriedItem（堆叠物 ∪ 装备实例）。
+ *
+ * 别名保留是为了不打断既有引用点；消费方需按 kind 分支处理。
+ */
+export type InventoryStack = CarriedItem;
 
 export interface SavePayload {
   version: number;
   /** 完整存档结构见 api 侧 save-shape.ts；背包模块消费 inventory 字段 */
   data: Record<string, unknown> & {
     settings?: Record<string, unknown>;
-    inventory?: InventoryStack[];
+    inventory?: CarriedItem[];
   };
   updatedAt: string;
 }

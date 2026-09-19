@@ -4,9 +4,12 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { randomUUID } from 'node:crypto';
+import { generateEquipment } from '@lazycraft/shared';
 import { AppModule } from './../src/app.module.js';
-import { createEmptySaveData } from './../src/save/save-shape.js';
+import { createEmptySaveData, CURRENT_SAVE_VERSION } from './../src/save/save-shape.js';
 import { migrate as migrate1to2 } from './../src/save/migrations/001-to-002.js';
+import { migrate as migrate2to3 } from './../src/save/migrations/002-to-003.js';
+import { stack, v3Data } from './save-fixtures.js';
 
 // 与 auth.e2e-spec 同一风格：每个测试文件一个应用实例，共享数据库连接
 let app: INestApplication<App>;
@@ -40,41 +43,41 @@ describe('/api/save (e2e)', () => {
     await request(app.getHttpServer()).post('/api/save').send({}).expect(401);
   });
 
-  it('首次 GET：懒创建默认玩家与空存档，返回 v2 完整结构（含 current_combat）', async () => {
+  it('首次 GET：懒创建默认玩家与空存档，返回 v3 完整结构（含 storage/容量）', async () => {
     const token = await registerAndLogin();
     const res = await request(app.getHttpServer())
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-    // 存档版本号已升级至 v2（新增 current_combat 字段），懒创建直接产出 v2 形态
-    expect(res.body.version).toBe(2);
+    expect(res.body.version).toBe(CURRENT_SAVE_VERSION);
     expect(res.body.data).toEqual(createEmptySaveData());
+    expect(res.body.data.storage).toEqual([]);
+    expect(res.body.data.inventory_capacity).toBe(100);
+    expect(res.body.data.storage_capacity).toBe(500);
     expect(res.body.updatedAt).toBeTruthy();
   });
 
-  it('POST 写入 v2 存档 → 再 GET 读回完全一致', async () => {
+  it('POST 写入 v3 存档 → 再 GET 读回完全一致', async () => {
     const token = await registerAndLogin();
 
-    // 先读一次拿到基线版本（懒创建已是 v2）
+    // 先读一次拿到基线版本（懒创建已是 v3）
     const first = await request(app.getHttpServer())
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(first.body.version).toBe(2);
+    expect(first.body.version).toBe(CURRENT_SAVE_VERSION);
 
-    // 用客户端视角构造一份 v2 完整结构——必须带 current_combat 才是合法的 v2 data
-    const v2Data = {
-      ...createEmptySaveData(),
+    const v3Data_ = v3Data({
       skills: { mining: { level: 10, exp: 1234 } },
-      inventory: [{ id: 'copper_ore', qty: 99 }],
+      inventory: [stack('copper_ore', 99)],
       abstract_resources: { gold: 500 },
-    };
+    });
 
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${token}`)
-      .send({ version: 2, data: v2Data })
+      .send({ version: CURRENT_SAVE_VERSION, data: v3Data_ })
       .expect(201);
 
     // 再读回来应与我们写入的内容完全一致——服务器权威，不做字段裁剪
@@ -82,22 +85,21 @@ describe('/api/save (e2e)', () => {
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(reread.body.version).toBe(2);
-    expect(reread.body.data).toEqual(v2Data);
+    expect(reread.body.version).toBe(CURRENT_SAVE_VERSION);
+    expect(reread.body.data).toEqual(v3Data_);
+    expect(reread.body.data.inventory[0]).toMatchObject({ kind: 'stack', item_id: 'copper_ore', quantity: 99 });
   });
 
   it('版本号不匹配时 POST 返回 409（冲突以服务器为准，不做合并）', async () => {
     const token = await registerAndLogin();
 
-    // 先用当前版本（v2）成功写一次
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${token}`)
-      .send({ version: 2, data: createEmptySaveData() })
+      .send({ version: CURRENT_SAVE_VERSION, data: createEmptySaveData() })
       .expect(201);
 
-    // 再用过时版本号（仍然是 v2，但这里通过第二次写入把 DB 里的 updatedAt 推进了，
-    // 模拟另一个客户端并发写入）——为了强制版本错位，直接用一个必然不匹配的 version=99
+    // 用一个必然不匹配的 version 强制版本错位
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${token}`)
@@ -105,23 +107,7 @@ describe('/api/save (e2e)', () => {
       .expect(409);
   });
 
-  it('模拟 v1→v2 迁移：直接用迁移函数把 v1 升到 v2，再通过 version=2 读写回', async () => {
-    const token = await registerAndLogin();
-
-    // 1) 懒创建（这一步把 DB 里的 save 行立成 v2），为后续版本校验铺路
-    await request(app.getHttpServer())
-      .get('/api/save')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-
-    // 2) 在测试侧构造一份"历史上的 v1 存档"，调用迁移函数验证其产物结构：
-    //    - 保留所有原字段
-    //    - 补 current_combat: null
-    //    - 附 migrated_at 审计时间戳
-    //    为什么绕开 prisma 直接调函数：当前 DB 里没有任何途径还能塞入 version=1 的行
-    //    （read/write 都会先把版本对齐到 CURRENT_SAVE_VERSION），迁移函数本身的
-    //    单测已在 apps/api/src/save/migrations 侧覆盖；这里验证的是"迁移产物 + 服务端
-    //    读写通路"能无缝衔接。
+  it('模拟 v1→v2 迁移：第一段链路产物结构正确（历史用例保留）', () => {
     const legacyV1 = {
       skills: { woodcutting: { level: 5, exp: 250 } },
       inventory: [],
@@ -135,20 +121,65 @@ describe('/api/save (e2e)', () => {
     expect(migrated.skills).toEqual(legacyV1.skills);
     expect(migrated.settings).toEqual(legacyV1.settings);
     expect(migrated.current_combat).toBeNull();
+  });
 
-    // 3) 把迁移产物按版本=2 写回（等价于"老客户端升级到新版本后首次提交"），
-    //    再读出应该字节级一致——这证明 migrated 结构与 v2 服务端读写完全兼容。
+  it('模拟 v2→v3 迁移：v2 存档（含 combat_equipment_drops）升级不丢数据，再经 version=3 读写回', async () => {
+    const token = await registerAndLogin();
+
+    // 懒创建：把 DB 里的 save 行立成 v3，为后续版本校验铺路
+    await request(app.getHttpServer())
+      .get('/api/save')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const gear = generateEquipment({
+      template_id: 'short_sword',
+      quality: 'rare',
+      affix_pool_ids: [],
+      rng: () => 0,
+    })!;
+
+    // 历史上的 v2 存档：堆叠物 + 抽象资源里的装备掉落
+    const legacyV2 = {
+      skills: { mining: { exp: 50 } },
+      inventory: [
+        { item_id: 'copper_ore', quantity: 6 },
+        { item_id: 'iron_ore', quantity: 2, quality: 'rare' },
+      ],
+      equipment: {},
+      abstract_resources: { gold: 77, res_wood: 4, combat_equipment_drops: [gear] },
+      current_action: null,
+      current_combat: null,
+      settings: {},
+    };
+
+    const migrated = migrate2to3(legacyV2 as never, () => 'fixed-uid');
+
+    // 不丢数据：两个堆叠 + 一件装备
+    expect(migrated.inventory).toHaveLength(3);
+    expect(migrated.inventory.filter((i) => i.kind === 'stack')).toHaveLength(2);
+    const equipment = migrated.inventory.filter((i) => i.kind === 'equipment');
+    expect(equipment).toHaveLength(1);
+    expect(equipment[0]).toMatchObject({ template_id: 'short_sword', quality: 'rare', slot: 'main_hand' });
+    // 抽象资源保留 gold/res_wood，装备暂存键消失
+    expect(migrated.abstract_resources).toEqual({ gold: 77, res_wood: 4 });
+    // storage/容量补默认
+    expect(migrated.storage).toEqual([]);
+    expect(migrated.inventory_capacity).toBe(100);
+    expect(migrated.storage_capacity).toBe(500);
+
+    // 把迁移产物按 version=3 写回，再读出应字节级一致——证明与服务端 v3 读写通路兼容
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${token}`)
-      .send({ version: 2, data: migrated })
+      .send({ version: CURRENT_SAVE_VERSION, data: migrated })
       .expect(201);
 
     const res = await request(app.getHttpServer())
       .get('/api/save')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(res.body.version).toBe(2);
+    expect(res.body.version).toBe(CURRENT_SAVE_VERSION);
     expect(res.body.data).toEqual(migrated);
   });
 
@@ -156,18 +187,18 @@ describe('/api/save (e2e)', () => {
     const tokenA = await registerAndLogin();
     const tokenB = await registerAndLogin();
 
-    const dataA = { ...createEmptySaveData(), abstract_resources: { gold: 1 } };
-    const dataB = { ...createEmptySaveData(), abstract_resources: { gold: 999 } };
+    const dataA = v3Data({ abstract_resources: { gold: 1 } });
+    const dataB = v3Data({ abstract_resources: { gold: 999 } });
 
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ version: 2, data: dataA })
+      .send({ version: CURRENT_SAVE_VERSION, data: dataA })
       .expect(201);
     await request(app.getHttpServer())
       .post('/api/save')
       .set('Authorization', `Bearer ${tokenB}`)
-      .send({ version: 2, data: dataB })
+      .send({ version: CURRENT_SAVE_VERSION, data: dataB })
       .expect(201);
 
     const readA = await request(app.getHttpServer())
