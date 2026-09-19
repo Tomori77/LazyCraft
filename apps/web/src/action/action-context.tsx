@@ -160,7 +160,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   /* -------- 内部：拉取存档（只读，用来同步技能/背包） -------- */
   const refreshSave = useCallback(async () => {
     if (!token) return;
-    const save = await apiGet<{ data: SaveDataView }>('/api/save', token);
+    const save = await apiGet<{ data: SaveDataView }>('/save', token);
     setSkillExp(readSkillExp(save.data));
     setInventoryTotals(readInventoryTotals(save.data));
     // 后端 current_action 也一并同步：处理"另一标签页开过动作"的场景
@@ -236,7 +236,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setIntervalMs(null);
       progressRef.current = 0;
 
-      const save = await apiGet<{ data: SaveDataView }>('/api/save', token);
+      const save = await apiGet<{ data: SaveDataView }>('/save', token);
       const invTotals = readInventoryTotals(save.data);
       setSkillExp(readSkillExp(save.data));
       setInventoryTotals(invTotals);

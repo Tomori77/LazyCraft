@@ -23,5 +23,5 @@ export interface TotalLevelResponse {
 
 export function fetchTotalLevelLeaderboard(token: string, limit = 0): Promise<TotalLevelResponse> {
   const query = limit > 0 ? `?limit=${limit}` : '';
-  return apiGet(`/api/leaderboard/total-level${query}`, token);
+  return apiGet(`/leaderboard/total-level${query}`, token);
 }

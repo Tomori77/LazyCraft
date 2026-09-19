@@ -21,15 +21,15 @@ export interface CombatStatus {
 
 /** POST /api/combat/start */
 export function startCombat(token: string, enemyId: string): Promise<CombatStatus> {
-  return apiPost<CombatStatus>('/api/combat/start', { enemyId }, token);
+  return apiPost<CombatStatus>('/combat/start', { enemyId }, token);
 }
 
 /** POST /api/combat/stop */
 export function stopCombat(token: string): Promise<{ report: CombatReport; current_combat: null }> {
-  return apiPost<{ report: CombatReport; current_combat: null }>('/api/combat/stop', {}, token);
+  return apiPost<{ report: CombatReport; current_combat: null }>('/combat/stop', {}, token);
 }
 
 /** GET /api/combat/current */
 export function fetchCurrentCombat(token: string): Promise<CombatStatus> {
-  return apiGet<CombatStatus>('/api/combat/current', token);
+  return apiGet<CombatStatus>('/combat/current', token);
 }

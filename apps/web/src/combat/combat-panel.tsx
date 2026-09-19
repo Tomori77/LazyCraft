@@ -34,7 +34,7 @@ function usePlayerMaxHp(): number {
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    apiGet<{ data: SaveDataView }>('/api/save', token)
+    apiGet<{ data: SaveDataView }>('/save', token)
       .then((save) => {
         if (cancelled) return;
         const exp = save.data.skills?.attack?.exp ?? 0;

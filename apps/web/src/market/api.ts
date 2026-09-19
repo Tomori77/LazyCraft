@@ -79,11 +79,11 @@ export function listItem(
 }
 
 export function cancelListing(token: string, id: string): Promise<CancelResponse> {
-  return apiPost(`/api/market/cancel/${id}`, {}, token);
+  return apiPost(`/market/cancel/${id}`, {}, token);
 }
 
 export function buyListing(token: string, id: string): Promise<BuyResponse> {
-  return apiPost(`/api/market/buy/${id}`, {}, token);
+  return apiPost(`/market/buy/${id}`, {}, token);
 }
 
 export function fetchMyListings(token: string): Promise<{ listings: Listing[] }> {
@@ -100,7 +100,7 @@ export function browseListings(
   if (opts.page && opts.page > 1) params.set('page', String(opts.page));
   if (opts.limit && opts.limit !== 20) params.set('limit', String(opts.limit));
   const qs = params.toString();
-  return apiGet(`/api/market/listings${qs ? `?${qs}` : ''}`, token);
+  return apiGet(`/market/listings${qs ? `?${qs}` : ''}`, token);
 }
 
 export function fetchHistory(
@@ -113,5 +113,5 @@ export function fetchHistory(
   if (quality) params.set('quality', quality);
   if (limit !== 30) params.set('limit', String(limit));
   const qs = params.toString();
-  return apiGet(`/api/market/history/${encodeURIComponent(itemId)}${qs ? `?${qs}` : ''}`, token);
+  return apiGet(`/market/history/${encodeURIComponent(itemId)}${qs ? `?${qs}` : ''}`, token);
 }

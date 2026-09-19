@@ -44,13 +44,13 @@ export function listQuests(token: string): Promise<QuestListResponse> {
 }
 
 export function acceptQuest(token: string, id: string): Promise<QuestSingleResponse> {
-  return apiPost(`/api/quests/${encodeURIComponent(id)}/accept`, {}, token);
+  return apiPost(`/quests/${encodeURIComponent(id)}/accept`, {}, token);
 }
 
 export function fetchQuestProgress(token: string, id: string): Promise<QuestSingleResponse> {
-  return apiGet(`/api/quests/${encodeURIComponent(id)}/progress`, token);
+  return apiGet(`/quests/${encodeURIComponent(id)}/progress`, token);
 }
 
 export function claimQuest(token: string, id: string): Promise<QuestClaimResponse> {
-  return apiPost(`/api/quests/${encodeURIComponent(id)}/claim`, {}, token);
+  return apiPost(`/quests/${encodeURIComponent(id)}/claim`, {}, token);
 }

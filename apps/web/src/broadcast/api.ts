@@ -23,5 +23,5 @@ export interface BroadcastListResponse {
 }
 
 export function fetchRecentBroadcasts(limit = 20): Promise<BroadcastListResponse> {
-  return apiGet(`/api/broadcasts?limit=${limit}`);
+  return apiGet(`/broadcasts?limit=${limit}`);
 }
