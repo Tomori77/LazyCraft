@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useRef, useState, createContext, createElement, useContext, type ReactNode } from 'react';
 import { useAuth } from '../auth/auth.tsx';
-import { apiGet } from '../lib/api.ts';
 import { fetchCurrentAction, stopAction as requestStop, startAction as requestStart } from './api.ts';
 import type { ActiveActionData } from './api.ts';
-import type { SettleReport, ItemDelta, CarriedItem } from '@lazycraft/shared';
 
 /**
- * 活动状态管理（整个 task-11 的中枢）
+ * 活动状态管理（task-11 中枢，task-27 起只保留"进行中活动"这一职责）
  *
  * 关键设计决策：
  *
  * 为什么用 Context 而不是把 state 放在 GameLayout？
- *   活动状态被左栏（开始按钮）、中栏（进度条）、右栏（资源数量）三处消费；
- *   放 GameLayout 会让左/右两栏被迫穿过无关的 main 层级接收 prop，
- *   Context 用一次 Provider 就把"当前活动 + 操作回调"推到所有消费点，
- *   与 AuthProvider / SettingsProvider 的组织方式保持一致。
+ *   活动状态被左栏（技能导航）、中栏（工作卡片进度）等多处消费；
+ *   Context 用一次 Provider 就把"当前活动 + 操作回调"推到所有消费点。
  *
  * 为什么进度条用 requestAnimationFrame + 服务端时间戳而不是 setInterval 累加？
  *   本地动画只是演出（《任务清单》铁律），进度 = min(1, (serverNow - started_at) / interval_ms)。
@@ -29,68 +25,11 @@ import type { SettleReport, ItemDelta, CarriedItem } from '@lazycraft/shared';
  *   累计的时钟漂移拉回来，又把请求频率控制在可忽略的量级。
  */
 
-/** 资源跳动动画的触发负载：右栏据此渲染 bump 效果 */
-export interface ResourceBump {
-  /** 触发动画的新数量（服务器结算后的最新值） */
-  quantity: number;
-  /** 每次结算都生成新的 nonce，强制重启动画 */
-  nonce: number;
-}
-
-/** 单个技能在存档里的字段（与 save-shape.ts 中 skills[key] 的最小切片对齐） */
-interface SkillRecord {
-  exp?: number;
-}
-
-/** 整个存档 data 字段的最小只读视图：本 hook 只消费这三个字段 */
-interface SaveDataView {
-  skills?: Record<string, SkillRecord>;
-  /** v3 起 inventory 混装堆叠物与装备实例；数量聚合只认 kind='stack' */
-  inventory?: CarriedItem[];
-  current_action?: ActiveActionData | null;
-}
-
-/** 从存档 data 提取技能经验；缺失字段一律按 0 兜底，与后端 toPlayerState 行为一致 */
-function readSkillExp(data: SaveDataView | undefined): Record<string, number> {
-  const result: Record<string, number> = {};
-  if (!data?.skills) return result;
-  for (const [skillId, rec] of Object.entries(data.skills)) {
-    result[skillId] = typeof rec?.exp === 'number' ? rec.exp : 0;
-  }
-  return result;
-}
-
-/** 从存档 data 提取背包，按 item_id 汇总数量；装备实例不计数 */
-function readInventoryTotals(data: SaveDataView | undefined): Record<string, number> {
-  const result: Record<string, number> = {};
-  if (!data?.inventory) return result;
-  for (const item of data.inventory) {
-    if (item?.kind !== 'stack') continue;
-    if (typeof item.item_id !== 'string' || typeof item.quantity !== 'number') continue;
-    result[item.item_id] = (result[item.item_id] ?? 0) + item.quantity;
-  }
-  return result;
-}
-
-/** 把结算报告的 gained 转成 bump 表：amount > 0 才跳动 */
-function bumpsFromGained(gained: ItemDelta[], inventory: Record<string, number>): Record<string, ResourceBump> {
-  const nonce = Date.now() + Math.random();
-  const result: Record<string, ResourceBump> = {};
-  for (const d of gained) {
-    if (d.amount <= 0) continue;
-    result[d.item_id] = {
-      quantity: inventory[d.item_id] ?? 0,
-      nonce,
-    };
-  }
-  return result;
-}
-
 /** 对时间隔（毫秒）：足够拉回漂移，又不会对服务器造成可感知压力 */
 const SYNC_INTERVAL_MS = 20_000;
 
-/** rAF 帧间隔无感：动画每帧都跑，重渲染只在 progress 数值变化时发生 */
-function easeOutLinear(fraction: number): number {
+/** rAF 进度归一化：夹到 0..1，越界（时钟偏差/暂停后）不产生负宽度 */
+function clamp01(fraction: number): number {
   return Math.min(1, Math.max(0, fraction));
 }
 
@@ -101,28 +40,25 @@ interface ActionContextValue {
   nextTickAt: number | null;
   /** 进行中活动的单次间隔；进度条分母 */
   intervalMs: number | null;
-  /** 各技能累计经验（用于左栏等级/进度条） */
-  skillExp: Record<string, number>;
-  /** 各物品当前数量（右栏显示 + bump 后更新） */
-  inventoryTotals: Record<string, number>;
-  /** 各物品 bump 动画负载：itemId -> bump；结算后产生，播放完由右栏清掉 */
-  resourceBumps: Record<string, ResourceBump>;
-  /** 最近一次结算报告（null = 还没结算过） */
-  report: SettleReport | null;
   /** 操作进行中标志：防止重复点击 */
   pending: boolean;
   /** 最近一次错误消息（null = 无错） */
   error: string | null;
   /** 进度条 0..1 实时值：rAF 驱动，不是 state 累加 */
   progressRef: React.MutableRefObject<number>;
+  /**
+   * 结算完成信号：每次 stop 成功 +1。
+   *
+   * 为什么用自增 nonce 而不是回调注册？
+   *   PlayerProvider 在 ActionProvider 之下，不能被子组件反向注册；
+   *   一个单调递增的计数让任何消费者用 useEffect 声明式地"结算后刷新"，
+   *   无需关心订阅/取消订阅的生命周期。
+   */
+  settleNonce: number;
   /** 点击开始：立即写入 active 并用响应的 next_tick_at 启动动画 */
   start: (skillId: string, actionId: string) => Promise<void>;
-  /** 点击停止：调用后端，接收结算报告并触发资源 bump */
+  /** 点击停止：调用后端结算，成功后 bump settleNonce 供背包刷新 */
   stop: () => Promise<void>;
-  /** 刷新存档（保存后调用）：登录/外部队档变化时同步 skills/inventory */
-  refreshSave: () => Promise<void>;
-  /** 关闭结算卡片 */
-  dismissReport: () => void;
 }
 
 const ActionContext = createContext<ActionContextValue | null>(null);
@@ -139,12 +75,9 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<ActiveActionData | null>(null);
   const [nextTickAt, setNextTickAt] = useState<number | null>(null);
   const [intervalMs, setIntervalMs] = useState<number | null>(null);
-  const [skillExp, setSkillExp] = useState<Record<string, number>>({});
-  const [inventoryTotals, setInventoryTotals] = useState<Record<string, number>>({});
-  const [resourceBumps, setResourceBumps] = useState<Record<string, ResourceBump>>({});
-  const [report, setReport] = useState<SettleReport | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settleNonce, setSettleNonce] = useState(0);
 
   /**
    * 进度条实时值：放在 ref 而不是 state，是为了避免每个 rAF 帧都触发 React 重渲染
@@ -158,26 +91,6 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   const syncTimerRef = useRef<number | null>(null);
   /** 最近一次 sync 的时间戳（用于避免短时间内重复同步） */
   const lastSyncAtRef = useRef<number>(0);
-
-  /* -------- 内部：拉取存档（只读，用来同步技能/背包） -------- */
-  const refreshSave = useCallback(async () => {
-    if (!token) return;
-    const save = await apiGet<{ data: SaveDataView }>('/save', token);
-    setSkillExp(readSkillExp(save.data));
-    setInventoryTotals(readInventoryTotals(save.data));
-    // 后端 current_action 也一并同步：处理"另一标签页开过动作"的场景
-    if (save.data.current_action) {
-      setActive(save.data.current_action);
-      // 通过 current 接口补齐 next_tick_at / interval_ms
-      const cur = await fetchCurrentAction(token);
-      setNextTickAt(cur.next_tick_at ?? null);
-      setIntervalMs(cur.interval_ms ?? null);
-    } else {
-      setActive(null);
-      setNextTickAt(null);
-      setIntervalMs(null);
-    }
-  }, [token]);
 
   /* -------- 内部：仅同步 current_action（不打存档） -------- */
   const syncActive = useCallback(async () => {
@@ -206,13 +119,9 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       // 用响应的 next_tick_at 启动本地进度条演出
       setActive(res.current_action);
       setNextTickAt(res.next_tick_at);
-      // interval_ms 从响应推不出来（start 不返），立即拉一次 current 补齐
-      // 为什么不在 start 里就返 interval：后端契约已定（task-08），前端不越权改
+      // interval_ms 从 start 响应推不出来（后端契约已定），立即拉一次 current 补齐
       const cur = await fetchCurrentAction(token);
       setIntervalMs(cur.interval_ms ?? null);
-      // 开始新动作时清掉上一份结算报告和旧 bump，避免混淆
-      setReport(null);
-      setResourceBumps({});
       progressRef.current = 0;
       lastSyncAtRef.current = Date.now();
     } catch (e) {
@@ -229,21 +138,14 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     setPending(true);
     setError(null);
     try {
-      const res = await requestStop(token);
-      // stop 成功后立即写报告、清 active；资源 bump 依赖最新背包总量
-      // 先拉一次存档获得最新库存，再用 gained 触发对应图标的 bump
-      setReport(res.report);
+      await requestStop(token);
+      // 结算已落库：清空进行中状态；自增信号让 PlayerProvider 重拉 /api/player
+      // （背包/经验都在后端结算里变化，前端不自行推算）
       setActive(null);
       setNextTickAt(null);
       setIntervalMs(null);
       progressRef.current = 0;
-
-      const save = await apiGet<{ data: SaveDataView }>('/save', token);
-      const invTotals = readInventoryTotals(save.data);
-      setSkillExp(readSkillExp(save.data));
-      setInventoryTotals(invTotals);
-      // 只有产出的资源需要跳动；消耗的直接静默更新数量即可
-      setResourceBumps(bumpsFromGained(res.report.gained, invTotals));
+      setSettleNonce((n) => n + 1);
       lastSyncAtRef.current = Date.now();
     } catch (e) {
       setError(e instanceof Error ? e.message : '操作失败');
@@ -253,10 +155,6 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     }
   }, [token]);
 
-  const dismissReport = useCallback(() => {
-    setReport(null);
-  }, []);
-
   /* -------- 登录/退登：拉取或清空 -------- */
   useEffect(() => {
     if (!token) {
@@ -264,17 +162,13 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setActive(null);
       setNextTickAt(null);
       setIntervalMs(null);
-      setSkillExp({});
-      setInventoryTotals({});
-      setResourceBumps({});
-      setReport(null);
       setError(null);
       progressRef.current = 0;
       return;
     }
-    // 登录：拉一次存档 + current，覆盖本地状态；失败不阻塞（下次 sync 再试）
-    refreshSave().catch(() => undefined);
-  }, [token, refreshSave]);
+    // 登录：拉一次 current 覆盖本地状态；失败不阻塞（下次 sync 再试）
+    syncActive().catch(() => undefined);
+  }, [token, syncActive]);
 
   /* -------- rAF 进度动画：active.next_tick_at 驱动 -------- */
   useEffect(() => {
@@ -293,17 +187,15 @@ export function ActionProvider({ children }: { children: ReactNode }) {
 
     const step = () => {
       const now = Date.now();
-      const fraction = easeOutLinear((now - tickStart) / tickMs);
+      const fraction = clamp01((now - tickStart) / tickMs);
       progressRef.current = fraction;
-      if (fraction < 1) {
-        rafHandleRef.current = requestAnimationFrame(step);
-      } else {
+      if (fraction >= 1) {
         // 到达 tick 末尾：本地不重复滚动，立即向服务器要最新状态。
         // 为什么不在前端自己 +interval？本地动画只是演出，"真实进行到第几个 tick"
         // 由 current 接口决定；前端自己推演会在标签页隐藏/恢复后产生幻觉。
         syncActive().catch(() => undefined);
-        rafHandleRef.current = requestAnimationFrame(step);
       }
+      rafHandleRef.current = requestAnimationFrame(step);
     };
 
     rafHandleRef.current = requestAnimationFrame(step);
@@ -339,17 +231,12 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     active,
     nextTickAt,
     intervalMs,
-    skillExp,
-    inventoryTotals,
-    resourceBumps,
-    report,
     pending,
     error,
     progressRef,
+    settleNonce,
     start,
     stop,
-    refreshSave,
-    dismissReport,
   };
 
   return createElement(ActionContext.Provider, { value }, children);
