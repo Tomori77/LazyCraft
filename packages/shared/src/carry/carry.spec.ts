@@ -10,7 +10,10 @@ import { describe, expect, it } from 'vitest';
 import {
   EQUIP_FAILURE_REASONS,
   addStacksToCarried,
+  addToContainer,
+  canAddToContainer,
   canEquip,
+  countNewSlotsNeeded,
   mergeSettledStacks,
   newUid,
   stackQuality,
@@ -308,6 +311,73 @@ describe('addStacksToCarried', () => {
 
   it('quantity<=0 的条目被忽略', () => {
     expect(addStacksToCarried([], [{ item_id: 'wood', quantity: 0 }], () => 'x')).toEqual([]);
+  });
+});
+
+describe('容器容量（addToContainer / countNewSlotsNeeded / canAddToContainer）', () => {
+  const stackOf = (uid: string, item_id: string, quantity: number, quality?: StackItemInstance['quality']): StackItemInstance => ({
+    kind: 'stack',
+    uid,
+    item_id,
+    quantity,
+    ...(quality !== undefined ? { quality } : {}),
+  });
+
+  it('并入同 (item_id, quality) 已有叠时不占新格，且保留 uid', () => {
+    const container: CarriedItem[] = [stackOf('keep', 'copper_ore', 10)];
+    const next = addToContainer(container, [{ item_id: 'copper_ore', quantity: 5 }], () => 'new');
+    expect(next).toEqual([{ kind: 'stack', uid: 'keep', item_id: 'copper_ore', quantity: 15 }]);
+    expect(countNewSlotsNeeded(container, [{ item_id: 'copper_ore', quantity: 5 }])).toBe(0);
+  });
+
+  it('尊重 stack_max：已有叠补满后余量另开新格', () => {
+    // stack_max=10：已有 8，加 5 → 补 2 进旧叠，余 3 开新格
+    const container: CarriedItem[] = [stackOf('a', 'copper_ore', 8)];
+    const next = addToContainer(
+      container,
+      [{ item_id: 'copper_ore', quantity: 5 }],
+      () => 'b',
+      () => 10,
+    );
+    expect(next).toEqual([
+      { kind: 'stack', uid: 'a', item_id: 'copper_ore', quantity: 10 },
+      { kind: 'stack', uid: 'b', item_id: 'copper_ore', quantity: 3 },
+    ]);
+    expect(countNewSlotsNeeded(container, [{ item_id: 'copper_ore', quantity: 5 }], () => 10)).toBe(1);
+  });
+
+  it('装备实例恒占一格，不与堆叠合并', () => {
+    const equip = makeInstance({ uid: 'eq' });
+    const next = addToContainer([stackOf('a', 'copper_ore', 1)], [equip]);
+    expect(next).toHaveLength(2);
+    expect(next[1]).toBe(equip);
+  });
+
+  it('不同品质不合并：同物品不同品质各占一格', () => {
+    const container: CarriedItem[] = [stackOf('a', 'copper_ore', 1, 'common')];
+    const next = addToContainer(
+      container,
+      [{ item_id: 'copper_ore', quantity: 1, quality: 'rare' }],
+      () => 'r',
+    );
+    expect(next).toHaveLength(2);
+  });
+
+  it('canAddToContainer 按剩余格数判定，边界相等可放', () => {
+    const container: CarriedItem[] = [stackOf('a', 'copper_ore', 1)];
+    // 容量 2：再加一格刚好放得下
+    expect(canAddToContainer(container, [{ item_id: 'wood', quantity: 1 }], 2)).toBe(true);
+    // 容量 1：放不下
+    expect(canAddToContainer(container, [{ item_id: 'wood', quantity: 1 }], 1)).toBe(false);
+  });
+
+  it('空加入物恒可放，即使容器已满', () => {
+    const container: CarriedItem[] = [stackOf('a', 'copper_ore', 1)];
+    expect(canAddToContainer(container, [], 1)).toBe(true);
+  });
+
+  it('quantity<=0 的堆叠增量被忽略', () => {
+    expect(addToContainer([], [{ item_id: 'wood', quantity: 0 }], () => 'x')).toEqual([]);
   });
 });
 

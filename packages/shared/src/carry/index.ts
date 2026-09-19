@@ -250,6 +250,108 @@ export function addStacksToCarried(
 }
 
 /* ------------------------------------------------------------------ */
+/* 容器容量（背包 / 仓库同一套"按格"规则，前后端共用）                       */
+/* ------------------------------------------------------------------ */
+
+/** 缺省堆叠上限：物品未在表里登记时按此算，与 idle 引擎的 DEFAULT_STACK_MAX 口径一致 */
+export const DEFAULT_STACK_MAX = 999;
+
+/**
+ * 容器可接受的一件"加入物"：
+ *   - 堆叠增量（移动整格 / 商店发货 / 任务奖励）只需要 (item_id, quantity, quality?)；
+ *   - 装备实例必须整体占一格（不可与任何东西合并）。
+ * 故意不要求 uid：容量只关心"占几格"，uid 由落盘方负责补。
+ */
+export type ContainerAdd =
+  | { item_id: string; quantity: number; quality?: Quality }
+  | EquipmentInstance;
+
+/** 堆叠上限解析器；默认一律 999，调用方可注入物品表读取真实 stack_max */
+export type StackMaxResolver = (itemId: string) => number;
+
+const defaultStackMax: StackMaxResolver = () => DEFAULT_STACK_MAX;
+
+function isEquipmentAdd(add: ContainerAdd): add is EquipmentInstance {
+  return 'kind' in add && add.kind === 'equipment';
+}
+
+/**
+ * 把一批加入物并入容器，返回新数组（不改原容器）。
+ *
+ * 与 addStacksToCarried 的关键差异：这里**尊重 stack_max**，
+ * 同 (item_id, quality) 已有格补满后仍有余量就另开新格。
+ * 为什么不让它复用 addStacksToCarried？后者无视 stack_max 地把数量并进第一格，
+ * 用它做容量校验会算出"只需 1 格"，与实际落盘形态不一致。
+ */
+export function addToContainer(
+  container: ReadonlyArray<CarriedItem>,
+  additions: ReadonlyArray<ContainerAdd>,
+  uidFactory: () => string = newUid,
+  stackMaxOf: StackMaxResolver = defaultStackMax,
+): CarriedItem[] {
+  const next: CarriedItem[] = [...container];
+  for (const add of additions) {
+    if (isEquipmentAdd(add)) {
+      next.push(add);
+      continue;
+    }
+    if (add.quantity <= 0) continue;
+    const quality = add.quality ?? DEFAULT_STACK_QUALITY;
+    const max = Math.max(1, stackMaxOf(add.item_id));
+    let remaining = add.quantity;
+
+    // 先补已有同 (item_id, quality) 且未满的格子，保留其 uid
+    for (let i = 0; i < next.length && remaining > 0; i += 1) {
+      const cur = next[i];
+      if (cur.kind !== 'stack' || cur.item_id !== add.item_id || stackQuality(cur) !== quality) {
+        continue;
+      }
+      const room = max - cur.quantity;
+      if (room <= 0) continue;
+      const fill = Math.min(room, remaining);
+      next[i] = { ...cur, quantity: cur.quantity + fill };
+      remaining -= fill;
+    }
+
+    // 余量另开新格；每格最多 max
+    while (remaining > 0) {
+      const take = Math.min(max, remaining);
+      const instance: StackItemInstance = {
+        kind: 'stack',
+        uid: uidFactory(),
+        item_id: add.item_id,
+        quantity: take,
+      };
+      if (add.quality !== undefined) instance.quality = add.quality;
+      next.push(instance);
+      remaining -= take;
+    }
+  }
+  return next;
+}
+
+/** 为容纳这批加入物，容器需要新增的格数（0 表示全部并入现有叠） */
+export function countNewSlotsNeeded(
+  container: ReadonlyArray<CarriedItem>,
+  additions: ReadonlyArray<ContainerAdd>,
+  stackMaxOf: StackMaxResolver = defaultStackMax,
+): number {
+  // uid 工厂用不着，传一个常量避免无意义的随机数开销
+  return addToContainer(container, additions, () => '', stackMaxOf).length - container.length;
+}
+
+/** 容器能否放下这批加入物（格数口径）；空加入物恒可放 */
+export function canAddToContainer(
+  container: ReadonlyArray<CarriedItem>,
+  additions: ReadonlyArray<ContainerAdd>,
+  capacity: number,
+  stackMaxOf: StackMaxResolver = defaultStackMax,
+): boolean {
+  if (additions.length === 0) return true;
+  return container.length + countNewSlotsNeeded(container, additions, stackMaxOf) <= capacity;
+}
+
+/* ------------------------------------------------------------------ */
 /* 装备规则（前后端共用，前端拖拽高亮与后端校验同一份判断）                    */
 /* ------------------------------------------------------------------ */
 

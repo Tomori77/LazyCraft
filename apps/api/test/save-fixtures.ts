@@ -5,7 +5,12 @@
  */
 
 import { createEmptySaveData, type SaveDataV3 } from '../src/save/save-shape.js';
-import type { Quality, StackItemInstance } from '@lazycraft/shared';
+import type {
+  EquipmentInstance,
+  EquipmentSlot,
+  Quality,
+  StackItemInstance,
+} from '@lazycraft/shared';
 
 let seq = 0;
 
@@ -18,6 +23,29 @@ export function stack(item_id: string, quantity: number, quality?: Quality): Sta
     item_id,
     quantity,
     ...(quality !== undefined ? { quality } : {}),
+  };
+}
+
+/**
+ * 造一个装备实例。
+ *
+ * 不调 generateEquipment 而是直接构造：测试断言关心的是"槽位/等级/搬运"，
+ * 不需要随机词缀参与；直接给最终字段更稳定、更易读。
+ */
+export function equipment(overrides: Partial<EquipmentInstance> = {}): EquipmentInstance {
+  seq += 1;
+  return {
+    kind: 'equipment',
+    uid: `test-eq-${seq}`,
+    template_id: 'short_sword',
+    quality: 'common',
+    prefix_affix: null,
+    suffix_affix: null,
+    display_name: '短剑',
+    final_stats: { attack: 2, defense: 0, hp: 0 },
+    slot: 'main_hand' as EquipmentSlot,
+    required_level: 1,
+    ...overrides,
   };
 }
 
