@@ -6,10 +6,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../lib/prisma-client/client.js';
 import {
-  findActionById,
   levelFromExp,
   settle,
-  SKILLS,
   type ItemStack,
   type PlayerState,
   type SkillAction,
@@ -17,6 +15,7 @@ import {
   OFFLINE_CAP_MS,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
+import { ContentService } from '../content/content.service.js';
 import type { ActiveActionData, SaveData } from '../save/save-shape.js';
 
 /** 背包格子形状：存档 data.inventory 与 idle 引擎 ItemStack 保持一致 */
@@ -50,7 +49,11 @@ export type SettlementListener = (
 
 @Injectable()
 export class ActionService {
-  constructor(private readonly saveService: SaveService) {}
+  constructor(
+    private readonly saveService: SaveService,
+    // 动作/技能解析统一走内容快照，保证与 /api/content 同一事实源（含 DLC 注册内容）
+    private readonly contentService: ContentService,
+  ) {}
 
   /** 结算产物监听器：QuestService 注册，触发 craft_item 任务的进度累计 */
   private settlementListeners: SettlementListener[] = [];
@@ -198,14 +201,18 @@ export class ActionService {
   /* ---------------------------------------------------------------- */
 
   private findActionOrThrow(actionId: string): SkillAction {
-    const action = findActionById(actionId);
+    const action = this.contentService
+      .getSnapshot()
+      .actions.find((a) => a.id === actionId);
     if (!action) throw new NotFoundException(`动作不存在: ${actionId}`);
     return action;
   }
 
   /** skillId / actionId 必须匹配：动作表是唯一的，客户端传的 skillId 只是"意图确认" */
   private assertActionBelongsToSkill(action: SkillAction, skillId: string) {
-    const skill = SKILLS.find((s) => s.id === skillId);
+    const skill = this.contentService
+      .getSnapshot()
+      .skills.find((s) => s.id === skillId);
     if (!skill) throw new NotFoundException(`技能不存在: ${skillId}`);
     if (action.skill_id !== skillId) {
       throw new ForbiddenException(`动作 ${action.id} 不属于技能 ${skillId}`);

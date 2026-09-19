@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { SaveModule } from '../save/save.module.js';
+import { ContentModule } from '../content/content.module.js';
 import { ActionController } from './action.controller.js';
 import { ActionService } from './action.service.js';
 
@@ -14,7 +15,7 @@ import { ActionService } from './action.service.js';
  * 运行时需要 PassportModule 提供的 AuthModuleOptions。
  */
 @Module({
-  imports: [AuthModule, SaveModule],
+  imports: [AuthModule, SaveModule, ContentModule],
   controllers: [ActionController],
   providers: [ActionService],
   exports: [ActionService],

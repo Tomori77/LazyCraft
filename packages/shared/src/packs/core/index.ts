@@ -11,7 +11,9 @@
  */
 
 import type { ContentPack, Enemy, Item, SkillAction } from '../../types.js';
-import { SKILL_ATTACK, SKILL_MINING, SKILL_WOODCUTTING } from '../../data/skills.js';
+import { SKILLS, SKILL_ATTACK, SKILL_MINING, SKILL_WOODCUTTING } from '../../data/skills.js';
+import { ACTIONS } from '../../data/actions.js';
+import { ITEMS } from '../../data/resources.js';
 
 /* ------------------------------------------------------------------ */
 /* 物品                                                                  */
@@ -135,13 +137,17 @@ export const CorePack: ContentPack = {
 
   register(registry) {
     // 注册顺序无关：validate() 在所有包载入完成后才执行
-    registry.skill(SKILL_ATTACK);
-    registry.skill(SKILL_MINING);
-    registry.skill(SKILL_WOODCUTTING);
+    // 为什么先注册 data/*.ts 的全量表再补 core 专有内容？
+    //   历史上 SKILLS 有 5 条、CorePack 只注册 3 条，形成两个事实源；
+    //   现在以 CorePack 为唯一入口把两张表合并，消除"接口返回的技能数 ≠ 引擎认识的技能数"。
+    for (const skill of SKILLS) registry.skill(skill);
+    for (const item of ITEMS) registry.item(item);
 
     registry.item(ITEM_TINY_COPPER_VEIN);
     registry.item(ITEM_WOOD);
     registry.item(ITEM_FEATHER);
+
+    for (const action of ACTIONS) registry.action(action);
 
     registry.action(ACTION_MINE_TINY_VEIN);
     registry.action(ACTION_CHOP_TREE);

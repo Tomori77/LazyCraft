@@ -49,14 +49,17 @@ describe('ContentRegistry', () => {
     const registry = createRegistry();
     registry.register(CorePack);
 
-    const items = registry.list('item');
-    expect(items).toHaveLength(3);
-    expect(items.map((i) => i.id).sort()).toEqual(
-      [ITEM_TINY_COPPER_VEIN.id, ITEM_WOOD.id, ITEM_FEATHER.id].sort(),
-    );
+    // CorePack 现在把 data/resources.ts 的 ITEMS 也纳入注册（统一事实源），
+    // 所以 item 总数 = ITEMS + core 专有 3 条；用包含关系断言而非写死总数。
+    const items = registry.list('item').map((i) => i.id);
+    for (const id of [ITEM_TINY_COPPER_VEIN.id, ITEM_WOOD.id, ITEM_FEATHER.id]) {
+      expect(items).toContain(id);
+    }
 
-    const actions = registry.list('action');
-    expect(actions).toHaveLength(2);
+    // 同理动作 = data/actions.ts 的 ACTIONS + core 专有 2 条
+    const actions = registry.list('action').map((a) => a.id);
+    expect(actions).toContain(ACTION_CHOP_TREE.id);
+    expect(actions).toContain(ACTION_MINE_TINY_VEIN.id);
 
     const enemies = registry.list('enemy');
     expect(enemies).toHaveLength(1);

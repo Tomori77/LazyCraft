@@ -11,9 +11,10 @@ import { QuestModule } from './quest/quest.module.js';
 import { BroadcastModule } from './broadcast/broadcast.module.js';
 import { MarketModule } from './market/market.module.js';
 import { CombatModule } from './combat/combat.module.js';
+import { ContentModule } from './content/content.module.js';
 
 @Module({
-  imports: [AuthModule, SaveModule, ActionModule, LeaderboardModule, AppConfigModule, QuestModule, BroadcastModule, MarketModule, CombatModule],
+  imports: [AuthModule, SaveModule, ActionModule, LeaderboardModule, AppConfigModule, QuestModule, BroadcastModule, MarketModule, CombatModule, ContentModule],
   controllers: [AppController],
   providers: [AppService,
     {

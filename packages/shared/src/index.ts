@@ -19,6 +19,10 @@ export * from './packs/core/index.js';
 // 掉落 / 词缀 / 装备生成（task-14）：刷宝系统的数据与计算
 export * from './loot/index.js';
 
+// 可携带物模型 + 装备规则 + 内容快照（task-22）：背包/仓库/接口的统一契约
+export * from './carry/index.js';
+export * from './content/index.js';
+
 // 战斗核心 + 食物配置 + 敌人战斗属性（task-18）：服务器权威的对砍推演
 export * from './combat/index.js';
 export * from './combat/foods.js';
