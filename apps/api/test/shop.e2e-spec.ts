@@ -9,7 +9,12 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { randomUUID } from 'node:crypto';
-import { SHOP_ENTRY_COPPER_ORE, SHOP_ENTRY_SHORT_SWORD, SHOP_ENTRY_WOOD } from '@lazycraft/shared';
+import {
+  SHOP_ENTRY_COPPER_ORE,
+  SHOP_ENTRY_IRON_ORE,
+  SHOP_ENTRY_SHORT_SWORD,
+  SHOP_ENTRY_WOOD,
+} from '@lazycraft/shared';
 import { AppModule } from './../src/app.module.js';
 import { CURRENT_SAVE_VERSION, type SaveDataV3 } from './../src/save/save-shape.js';
 import { equipment, stack, v3Data } from './save-fixtures.js';
@@ -72,11 +77,30 @@ const buy = (token: string, entry_id: string, quantity: number) =>
     .set('Authorization', `Bearer ${token}`)
     .send({ entry_id, quantity });
 
-const sell = (token: string, uid: string, quantity: number) =>
+// task-33：出售按 entry_id（固定回收清单）而非背包 uid
+const sell = (token: string, entry_id: string, quantity: number) =>
   request(app.getHttpServer())
     .post('/api/shop/sell')
     .set('Authorization', `Bearer ${token}`)
-    .send({ uid, quantity });
+    .send({ entry_id, quantity });
+
+interface ShopPayload {
+  entries: Array<{ id: string; affordable: boolean; unlocked: boolean; stock: number }>;
+  recyclables: RecyclableEntry[];
+}
+
+interface RecyclableEntry {
+  entry_id: string;
+  kind: 'item' | 'equipment';
+  item_id?: string;
+  template_id?: string;
+  quality?: string;
+  sell_price: number;
+  held: number;
+}
+
+const getShop = (token: string) =>
+  request(app.getHttpServer()).get('/api/shop').set('Authorization', `Bearer ${token}`);
 
 // admin 邮箱只能注册一次（重复注册 409），复用首次登录的 token
 let adminTokenPromise: Promise<string> | undefined;
@@ -103,27 +127,49 @@ async function deleteEntry(token: string, id: string) {
 describe('/api/shop (e2e)', () => {
   it('未带 token 访问全部 401', async () => {
     await request(app.getHttpServer()).get('/api/shop').expect(401);
+    await request(app.getHttpServer()).get('/api/shop/recyclables').expect(401);
     await request(app.getHttpServer()).post('/api/shop/buy').send({}).expect(401);
     await request(app.getHttpServer()).post('/api/shop/sell').send({}).expect(401);
   });
 
-  it('GET /api/shop：返回条目带 affordable/unlocked（基于当前存档）', async () => {
+  it('GET /api/shop：分区返回 entries + recyclables（task-33 契约）', async () => {
     const token = await registerAndLogin();
     await ensureSave(token);
     await writeData(token, v3Data({ abstract_resources: { gold: 0 } }));
 
-    const res = await request(app.getHttpServer())
-      .get('/api/shop')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    const list = res.body as Array<{ id: string; affordable: boolean; unlocked: boolean; stock: number }>;
-    expect(Array.isArray(list)).toBe(true);
-    const wood = list.find((e) => e.id === SHOP_ENTRY_WOOD.id)!;
+    const res = await getShop(token).expect(200);
+    const body = res.body as ShopPayload;
+    expect(Array.isArray(body.entries)).toBe(true);
+    expect(Array.isArray(body.recyclables)).toBe(true);
+
+    const wood = body.entries.find((e) => e.id === SHOP_ENTRY_WOOD.id)!;
     // 0 金币买不起，但木头无等级门槛 → 已解锁
     expect(wood.affordable).toBe(false);
     expect(wood.unlocked).toBe(true);
-    const sword = list.find((e) => e.id === SHOP_ENTRY_SHORT_SWORD.id)!;
+    const sword = body.entries.find((e) => e.id === SHOP_ENTRY_SHORT_SWORD.id)!;
     expect(sword.unlocked).toBe(false);
+
+    // 回收清单只含 sell_price != null 的条目，且带 held（当前持有量）
+    expect(body.recyclables.some((e) => e.entry_id === SHOP_ENTRY_WOOD.id)).toBe(true);
+    expect(body.recyclables.some((e) => e.item_id === 'iron_ore')).toBe(false);
+    const woodRec = body.recyclables.find((e) => e.entry_id === SHOP_ENTRY_WOOD.id)!;
+    expect(woodRec.sell_price).toBe(SHOP_ENTRY_WOOD.sell_price);
+    expect(woodRec.held).toBe(0);
+  });
+
+  it('GET /api/shop/recyclables：与分区清单一致，held 反映背包', async () => {
+    const token = await registerAndLogin();
+    await ensureSave(token);
+    await writeData(token, v3Data({ inventory: [stack('copper_ore', 4)] }));
+
+    const res = await request(app.getHttpServer())
+      .get('/api/shop/recyclables')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const list = res.body as RecyclableEntry[];
+    expect(Array.isArray(list)).toBe(true);
+    const ore = list.find((e) => e.entry_id === SHOP_ENTRY_COPPER_ORE.id)!;
+    expect(ore).toMatchObject({ sell_price: SHOP_ENTRY_COPPER_ORE.sell_price, held: 4 });
   });
 
   it('购买堆叠物：扣金币、发货入 inventory', async () => {
@@ -213,13 +259,8 @@ describe('/api/shop (e2e)', () => {
 
     await buy(token, SHOP_ENTRY_WOOD.id, 2).expect(201);
 
-    const res = await request(app.getHttpServer())
-      .get('/api/shop')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    const wood = (res.body as Array<{ id: string; stock: number }>).find(
-      (e) => e.id === SHOP_ENTRY_WOOD.id,
-    )!;
+    const res = await getShop(token).expect(200);
+    const wood = (res.body as ShopPayload).entries.find((e) => e.id === SHOP_ENTRY_WOOD.id)!;
     expect(wood.stock).toBe(-1);
   });
 
@@ -233,20 +274,14 @@ describe('/api/shop (e2e)', () => {
       await ensureSave(buyerB);
       await writeData(buyerA, v3Data({ abstract_resources: { gold: 1000 } }));
 
-      const before = await request(app.getHttpServer())
-        .get('/api/shop')
-        .set('Authorization', `Bearer ${buyerB}`)
-        .expect(200);
-      expect((before.body as Array<{ id: string; stock: number }>).find((e) => e.id === entryId)!.stock).toBe(3);
+      const before = await getShop(buyerB).expect(200);
+      expect((before.body as ShopPayload).entries.find((e) => e.id === entryId)!.stock).toBe(3);
 
       await buy(buyerA, entryId, 2).expect(201);
 
-      const after = await request(app.getHttpServer())
-        .get('/api/shop')
-        .set('Authorization', `Bearer ${buyerB}`)
-        .expect(200);
+      const after = await getShop(buyerB).expect(200);
       // 全服共享：另一个账号（未购买）也看到剩余下降
-      expect((after.body as Array<{ id: string; stock: number }>).find((e) => e.id === entryId)!.stock).toBe(1);
+      expect((after.body as ShopPayload).entries.find((e) => e.id === entryId)!.stock).toBe(1);
     } finally {
       await deleteEntry(admin, entryId);
     }
@@ -291,30 +326,66 @@ describe('/api/shop (e2e)', () => {
     }
   });
 
-  it('出售有 sell_price 的物品 → 金币增加、物品减少', async () => {
+  it('出售有 sell_price 的物品 → 金币增加、物品减少（按 entry_id）', async () => {
     const token = await registerAndLogin();
     await ensureSave(token);
     const ore = stack('copper_ore', 5);
     await writeData(token, v3Data({ inventory: [ore], abstract_resources: { gold: 0 } }));
 
-    const res = await sell(token, ore.uid, 3).expect(201);
+    const res = await sell(token, SHOP_ENTRY_COPPER_ORE.id, 3).expect(201);
     const gained = SHOP_ENTRY_COPPER_ORE.sell_price! * 3;
-    expect(res.body).toMatchObject({ uid: ore.uid, quantity: 3, gained });
+    expect(res.body).toMatchObject({ entry_id: SHOP_ENTRY_COPPER_ORE.id, quantity: 3, gained });
+    expect(res.body.uid).toBeUndefined();
 
     const after = await readData(token);
     expect(after.abstract_resources.gold).toBe(gained);
-    expect(after.inventory.find((i) => i.uid === ore.uid)).toMatchObject({ quantity: 2 });
+    expect(after.inventory.find((i) => i.item_id === 'copper_ore')).toMatchObject({ quantity: 2 });
   });
 
-  it('出售无 sell_price 的物品 → 403', async () => {
+  it('出售会跨同品质堆叠聚合扣减（不依赖单格 uid）', async () => {
     const token = await registerAndLogin();
     await ensureSave(token);
-    // 铁矿石在商店可买但不可卖
-    const ore = stack('iron_ore', 2);
-    await writeData(token, v3Data({ inventory: [ore] }));
+    await writeData(
+      token,
+      v3Data({ inventory: [stack('copper_ore', 2), stack('copper_ore', 3)], abstract_resources: { gold: 0 } }),
+    );
 
-    const res = await sell(token, ore.uid, 1).expect(403);
-    expect(res.body.message).toContain('不可出售');
+    await sell(token, SHOP_ENTRY_COPPER_ORE.id, 4).expect(201);
+
+    const after = await readData(token);
+    expect(after.abstract_resources.gold).toBe(SHOP_ENTRY_COPPER_ORE.sell_price! * 4);
+    const total = after.inventory
+      .filter((i) => i.item_id === 'copper_ore')
+      .reduce((sum, i) => sum + (i.kind === 'stack' ? i.quantity : 0), 0);
+    expect(total).toBe(1);
+  });
+
+  it('出售不可回收条目（无 sell_price）→ 403', async () => {
+    const token = await registerAndLogin();
+    await ensureSave(token);
+    // 铁矿石在商店可买但不可回收；即便背包持有也不该能卖
+    await writeData(token, v3Data({ inventory: [stack('iron_ore', 2)] }));
+
+    const res = await sell(token, SHOP_ENTRY_IRON_ORE.id, 1).expect(403);
+    expect(res.body.message).toContain('不可回收');
+  });
+
+  it('出售未持有物品 → 404；数量不足 → 400', async () => {
+    const token = await registerAndLogin();
+    await ensureSave(token);
+    await writeData(token, v3Data({ inventory: [stack('copper_ore', 2)] }));
+
+    // 未持有（背包没有 wood）
+    await sell(token, SHOP_ENTRY_WOOD.id, 1).expect(404);
+    // 持有 2 但要卖 5
+    const res = await sell(token, SHOP_ENTRY_COPPER_ORE.id, 5).expect(400);
+    expect(res.body.message).toContain('超过持有量');
+  });
+
+  it('出售不存在的条目 → 404', async () => {
+    const token = await registerAndLogin();
+    await ensureSave(token);
+    await sell(token, randomUUID(), 1).expect(404);
   });
 
   it('出售装备实例：按 sell_price 回收、整件移除', async () => {
@@ -323,22 +394,12 @@ describe('/api/shop (e2e)', () => {
     const gear = equipment({ template_id: 'short_sword', quality: 'common' });
     await writeData(token, v3Data({ inventory: [gear], abstract_resources: { gold: 0 } }));
 
-    const res = await sell(token, gear.uid, 1).expect(201);
+    const res = await sell(token, SHOP_ENTRY_SHORT_SWORD.id, 1).expect(201);
     expect(res.body.gained).toBe(SHOP_ENTRY_SHORT_SWORD.sell_price);
 
     const after = await readData(token);
     expect(after.inventory.some((i) => i.uid === gear.uid)).toBe(false);
     expect(after.abstract_resources.gold).toBe(SHOP_ENTRY_SHORT_SWORD.sell_price);
-  });
-
-  it('出售数量超过持有量 → 400；uid 不存在 → 404', async () => {
-    const token = await registerAndLogin();
-    await ensureSave(token);
-    const ore = stack('copper_ore', 2);
-    await writeData(token, v3Data({ inventory: [ore] }));
-
-    await sell(token, ore.uid, 5).expect(400);
-    await sell(token, randomUUID(), 1).expect(404);
   });
 
   it('DTO 校验：entry_id 缺失 / quantity 非正 → 400', async () => {

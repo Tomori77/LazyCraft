@@ -8,7 +8,14 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { SHOP_ENTRIES, findShopEntryById } from './shop.js';
+import {
+  SHOP_ENTRIES,
+  SHOP_ENTRY_WOOD,
+  findShopEntryById,
+  heldQuantityForRecyclable,
+  isRecyclable,
+  type ShopEntry,
+} from './shop.js';
 import { ITEMS } from './resources.js';
 import { EQUIPMENT_TEMPLATES } from '../loot/equipment-template.js';
 import { ITEM_WOOD } from '../packs/core/index.js';
@@ -86,5 +93,71 @@ describe('findShopEntryById', () => {
 
   it('未配置返回 undefined', () => {
     expect(findShopEntryById('not_a_real_entry')).toBeUndefined();
+  });
+});
+
+describe('可回收语义（task-33）', () => {
+  it('isRecyclable 以 sell_price 是否存在为准', () => {
+    expect(isRecyclable(SHOP_ENTRY_WOOD)).toBe(true);
+    // 铁矿石只买不卖
+    expect(isRecyclable(SHOP_ENTRIES.find((e) => e.id === 'shop_iron_ore')!)).toBe(false);
+  });
+});
+
+describe('heldQuantityForRecyclable', () => {
+  const woodEntry: Pick<ShopEntry, 'kind' | 'item_id' | 'quality'> = {
+    kind: 'item',
+    item_id: 'wood',
+  };
+
+  it('堆叠物按 (item_id, 品质) 跨格求和', () => {
+    const inventory = [
+      { kind: 'stack' as const, uid: 'u1', item_id: 'wood', quantity: 3 },
+      { kind: 'stack' as const, uid: 'u2', item_id: 'wood', quantity: 4 },
+      { kind: 'stack' as const, uid: 'u3', item_id: 'copper_ore', quantity: 9 },
+    ];
+    expect(heldQuantityForRecyclable(inventory, woodEntry)).toBe(7);
+  });
+
+  it('品质不同不合并；缺省品质视为 common', () => {
+    const inventory = [
+      { kind: 'stack' as const, uid: 'u1', item_id: 'wood', quantity: 3 },
+      { kind: 'stack' as const, uid: 'u2', item_id: 'wood', quantity: 5, quality: 'rare' as const },
+    ];
+    expect(heldQuantityForRecyclable(inventory, woodEntry)).toBe(3);
+    expect(heldQuantityForRecyclable(inventory, { ...woodEntry, quality: 'rare' })).toBe(5);
+  });
+
+  it('装备按 template_id + 品质计件（每件 1）', () => {
+    const inventory = [
+      { kind: 'stack' as const, uid: 'u1', item_id: 'wood', quantity: 3 },
+      {
+        kind: 'equipment' as const,
+        uid: 'e1',
+        template_id: 'short_sword',
+        quality: 'common' as const,
+        prefix_affix: null,
+        suffix_affix: null,
+        display_name: '短剑',
+        final_stats: { attack: 2, defense: 0, hp: 0 },
+        slot: 'main_hand' as const,
+        required_level: 1,
+      },
+      {
+        kind: 'equipment' as const,
+        uid: 'e2',
+        template_id: 'short_sword',
+        quality: 'rare' as const,
+        prefix_affix: null,
+        suffix_affix: null,
+        display_name: '短剑',
+        final_stats: { attack: 2, defense: 0, hp: 0 },
+        slot: 'main_hand' as const,
+        required_level: 1,
+      },
+    ];
+    const swordEntry = { kind: 'equipment' as const, template_id: 'short_sword' };
+    expect(heldQuantityForRecyclable(inventory, swordEntry)).toBe(1);
+    expect(heldQuantityForRecyclable(inventory, { ...swordEntry, quality: 'rare' })).toBe(1);
   });
 });

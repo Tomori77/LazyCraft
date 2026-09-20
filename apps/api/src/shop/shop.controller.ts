@@ -21,6 +21,12 @@ export class ShopController {
     return this.shopService.list(user.id);
   }
 
+  /** 固定可回收清单（task-33）：与背包解耦，含 `held` 供前端算"最大" */
+  @Get('recyclables')
+  recyclables(@CurrentUser() user: { id: string }) {
+    return this.shopService.listRecyclables(user.id);
+  }
+
   @Post('buy')
   buy(@CurrentUser() user: { id: string }, @Body() dto: BuyDto) {
     return this.shopService.buy(user.id, dto.entry_id, dto.quantity);
@@ -28,6 +34,6 @@ export class ShopController {
 
   @Post('sell')
   sell(@CurrentUser() user: { id: string }, @Body() dto: SellDto) {
-    return this.shopService.sell(user.id, dto.uid, dto.quantity);
+    return this.shopService.sell(user.id, dto.entry_id, dto.quantity);
   }
 }

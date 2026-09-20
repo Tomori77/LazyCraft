@@ -13,6 +13,8 @@ import {
   addToContainer,
   canAddToContainer,
   generateEquipment,
+  heldQuantityForRecyclable,
+  isRecyclable,
   levelFromExp,
   newUid,
   stackQuality,
@@ -20,6 +22,7 @@ import {
   type CarriedItem,
   type ContainerAdd,
   type Quality,
+  type RecyclableEntry,
   type ShopEntry,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
@@ -82,17 +85,17 @@ function toShopEntry(row: ShopEntryRow): ShopEntry {
   };
 }
 
-/**
- * 品质匹配条件：条目 quality 为 NULL 等价于 'common'。
- *
- * 为什么不能直接 `quality: q`？
- *   seed 里的物品条目不带 quality（NULL = 默认品质），而堆叠实例缺省也是 common；
- *   若只精确匹配字符串，NULL 行永远匹配不到，出售会误判"不可出售"。
- */
-function matchQuality(q: Quality): Prisma.ShopEntryRowWhereInput {
-  return q === 'common'
-    ? { OR: [{ quality: 'common' }, { quality: null }] }
-    : { quality: q };
+/** DB 行 → 回收清单条目（sell_price 必填，见 packages/shared/src/data/shop.ts 的语义） */
+function toRecyclableEntry(row: ShopEntryRow): RecyclableEntry {
+  const entry: RecyclableEntry = {
+    entry_id: row.id,
+    kind: row.kind as ShopEntry['kind'],
+    sell_price: row.sellPrice ?? 0,
+  };
+  if (row.itemId !== null) entry.item_id = row.itemId;
+  if (row.templateId !== null) entry.template_id = row.templateId;
+  if (row.quality !== null) entry.quality = row.quality as Quality;
+  return entry;
 }
 
 /**
@@ -114,10 +117,12 @@ export class ShopService {
   constructor(private readonly saveService: SaveService) {}
 
   /**
-   * 列出**已上架**条目，并带上"买得起 / 已解锁"（基于当前玩家存档）。
+   * 商店主视图：**分区**返回"可购买条目"与"固定可回收清单"。
    *
-   * 直接返回数组而非 { gold, entries }：条目本身可携带派生标志，
-   * 前端拿到的就是"能渲染的列表"，不必再拆一层；金币由 /api/player 提供。
+   * 契约变化（task-33）：原来返回裸数组，现为 `{ entries, recyclables }`。
+   *   为什么不再返回裸数组？出售页签已与背包解耦，需要的是"清单"而非
+   *   "背包 + 价格匹配"；把两份数据一次下发，前端不必猜条目能不能回收。
+   *   金币仍由 /api/player 提供（本接口只补 affordable/unlocked 派生标志）。
    */
   async list(accountId: string) {
     const { data } = await this.saveService.read(accountId);
@@ -131,7 +136,7 @@ export class ShopService {
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     });
 
-    return rows.map((row) => {
+    const entries = rows.map((row) => {
       const entry = toShopEntry(row);
       return {
         ...entry,
@@ -139,6 +144,37 @@ export class ShopService {
         unlocked: level >= (entry.required_level ?? 1),
       };
     });
+
+    // 固定回收清单：已上架 + 有 sell_price；带玩家当前持有量，供前端算"最大"
+    const recyclables = rows
+      .filter((row) => isRecyclable(toShopEntry(row)))
+      .map((row) => {
+        const entry = toRecyclableEntry(row);
+        return { ...entry, held: heldQuantityForRecyclable(inventoryOf(snapshot), entry) };
+      });
+
+    return { entries, recyclables };
+  }
+
+  /**
+   * 单独的可回收清单接口（供只想刷回收页的调用方）。
+   *
+   * 为什么不复用 list()？回收清单的权威形状由 shared 的 `RecyclableEntry` 定义，
+   * 单独暴露可让 admin/插件按同一契约取数，不必理解购买侧的 affordable/unlocked。
+   */
+  async listRecyclables(accountId: string) {
+    const { data } = await this.saveService.read(accountId);
+    const snapshot = data as unknown as SaveDataV3;
+    const rows = await this.saveService.prisma.shopEntryRow.findMany({
+      where: { listed: true },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    });
+    return rows
+      .filter((row) => isRecyclable(toShopEntry(row)))
+      .map((row) => {
+        const entry = toRecyclableEntry(row);
+        return { ...entry, held: heldQuantityForRecyclable(inventoryOf(snapshot), entry) };
+      });
   }
 
   /** 购买：扣金币 → 真实扣减全服库存 → 发货入背包（容量不足拒绝） */
@@ -200,48 +236,44 @@ export class ShopService {
     });
   }
 
-  /** 出售：从背包找 uid → 按条目 sell_price 回收金币；**不回补库存** */
-  async sell(accountId: string, uid: string, quantity: number) {
+  /**
+   * 出售：按 **`entry_id` + `quantity`** 从固定回收清单出货；**不回补库存**。
+   *
+   * 为什么不保留旧的 `uid` 口径？
+   *   旧口径要求客户端先列背包、自己匹配到条目再回传 uid，出售入口等于背包的
+   *   投影；决策要求"固定清单与背包解耦"。改为 `entry_id` 后，服务端按条目的
+   *   `(item_id|template_id, quality)` 聚合背包持有量（shared 的同一份口径），
+   *   前端只需报"卖哪种货、卖几个"——不依赖背包的呈现顺序，也无法用伪造 uid
+   *   指向清单外的物品。老 `uid` 字段不再被读取。
+   */
+  async sell(accountId: string, entryId: string, quantity: number) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
       const player = await mustGetPlayer(tx, accountId);
       const save = await mustLockSave(tx, player.id);
       const data = save.data as unknown as SaveDataV3;
 
+      const row = await tx.shopEntryRow.findUnique({ where: { id: entryId } });
+      // 未上架对卖家等同不存在，避免"下架了还能回收"
+      if (!row || !row.listed) throw new NotFoundException(`商店条目不存在: ${entryId}`);
+      if (row.sellPrice === null) {
+        throw new ForbiddenException('该物品不可回收');
+      }
+
+      const entry = toRecyclableEntry(row);
       const inventory = inventoryOf(data);
-      const index = inventory.findIndex((item) => item.uid === uid);
-      if (index < 0) throw new NotFoundException(`物品不存在: ${uid}`);
-      const item = inventory[index];
-
-      const row = await tx.shopEntryRow.findFirst({
-        where: this.sellWhereFor(item),
-        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-      });
-      if (!row || row.sellPrice === null) {
-        throw new ForbiddenException('该物品不可出售');
+      const held = heldQuantityForRecyclable(inventory, entry);
+      if (held <= 0) {
+        throw new NotFoundException(`背包中没有可回收的物品: ${entryId}`);
+      }
+      if (quantity > held) {
+        throw new BadRequestException(`出售数量超过持有量：持有 ${held}，请求 ${quantity}`);
       }
 
-      let nextInventory: CarriedItem[];
-      if (item.kind === 'equipment') {
-        if (quantity !== 1) {
-          throw new BadRequestException('装备不可拆分，quantity 只能为 1');
-        }
-        nextInventory = inventory.filter((_, i) => i !== index);
-      } else {
-        if (quantity > item.quantity) {
-          throw new BadRequestException(
-            `出售数量超过持有量：持有 ${item.quantity}，请求 ${quantity}`,
-          );
-        }
-        const left = item.quantity - quantity;
-        nextInventory =
-          left > 0
-            ? inventory.map((cur, i) => (i === index ? { ...cur, quantity: left } : cur))
-            : inventory.filter((_, i) => i !== index);
-      }
+      const nextInventory = removeRecycled(inventory, entry, quantity);
 
       const gold = readGold(data);
-      const gained = row.sellPrice * quantity;
+      const gained = entry.sell_price * quantity;
       let next: SaveDataV3 = { ...data, inventory: nextInventory };
       next = writeGold(next, gold + gained) as SaveDataV3;
 
@@ -249,7 +281,7 @@ export class ShopService {
         where: { id: save.id },
         data: { data: next as unknown as Prisma.InputJsonValue },
       });
-      return { uid, entry_id: row.id, quantity, gained, gold: gold + gained };
+      return { entry_id: entryId, quantity, gained, gold: gold + gained };
     });
   }
 
@@ -300,23 +332,49 @@ export class ShopService {
     return additions;
   }
 
-  /** 找出能回收该物品的商店条目：按 kind + 引用 id + 品质 + 有 sell_price + 已上架 */
-  private sellWhereFor(item: CarriedItem): Prisma.ShopEntryRowWhereInput {
-    if (item.kind === 'equipment') {
-      return {
-        kind: 'equipment',
-        templateId: item.template_id,
-        listed: true,
-        sellPrice: { not: null },
-        ...matchQuality(item.quality),
-      };
+}
+
+/**
+ * 从背包扣掉指定数量的可回收物：按条目引用 + 品质匹配，堆叠物逐格扣减、
+ * 装备整件移除；扣满 quantity 即停（不碰其它物品）。
+ *
+ * 为什么用"先扣满即停"而不是"先按 uid 定位"？
+ *   出售已与背包解耦，服务端只认 `(item_id|template_id, quality)`；
+ *   同品质多格时逐格扣减的结果与玩家预期一致（总量守恒），
+ *   且不必让客户端指定要动哪一格。
+ */
+function removeRecycled(
+  inventory: ReadonlyArray<CarriedItem>,
+  entry: Pick<RecyclableEntry, 'kind' | 'item_id' | 'template_id' | 'quality'>,
+  quantity: number,
+): CarriedItem[] {
+  const entryQuality = entry.quality ?? 'common';
+  let remaining = quantity;
+  const next: CarriedItem[] = [];
+
+  for (const item of inventory) {
+    if (remaining <= 0) {
+      next.push(item);
+      continue;
     }
-    return {
-      kind: 'item',
-      itemId: item.item_id,
-      listed: true,
-      sellPrice: { not: null },
-      ...matchQuality(stackQuality(item)),
-    };
+    if (entry.kind === 'item') {
+      if (item.kind !== 'stack' || item.item_id !== entry.item_id || stackQuality(item) !== entryQuality) {
+        next.push(item);
+        continue;
+      }
+      const take = Math.min(remaining, item.quantity);
+      remaining -= take;
+      const left = item.quantity - take;
+      if (left > 0) next.push({ ...item, quantity: left });
+      continue;
+    }
+    if (item.kind !== 'equipment' || item.template_id !== entry.template_id || item.quality !== entryQuality) {
+      next.push(item);
+      continue;
+    }
+    // 装备不可拆分：一件一 uid，直接整件移除
+    remaining -= 1;
   }
+
+  return next;
 }

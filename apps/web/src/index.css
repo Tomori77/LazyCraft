@@ -101,6 +101,22 @@ svg.i {
   line-height: 1;
 }
 
+/* ---------- 多形态图标（task-35）：emoji 文本 / 位图 img ---------- */
+/* 为什么给 emoji 加描边阴影？匠人工坊底色偏暖，emoji 直接贴上去发灰；
+   一点暗色描边能让它在木质背景上立住，与手绘图标的 drop-shadow 观感一致。 */
+.i-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.6));
+}
+
+/* 位图按 object-fit 约束，保证在装备槽等非方形框里也不溢出 */
+.i-raster {
+  object-fit: contain;
+  vertical-align: middle;
+}
+
 /* ---------- 通用按钮 / 表单 ---------- */
 .btn {
   border: 1px solid var(--brass-2);
@@ -1710,4 +1726,60 @@ select {
   border: 1px solid var(--line-2);
   border-radius: 4px;
   background: var(--paper-2);
+}
+
+/* ---------- 商店数量选择弹窗（task-33） ---------- */
+.qty-modal {
+  width: min(20rem, 92vw);
+}
+
+.qty-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: var(--wood-2);
+  margin-bottom: 0.55rem;
+}
+
+.qty-line b {
+  color: var(--brass-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.qty-max {
+  font-size: 0.8rem;
+  color: var(--wood-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.qty-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.qty-stepper input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--paper-2);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.qty-total {
+  border-top: 1px solid var(--line);
+  padding-top: 0.55rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.95rem;
+}
+
+.qty-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }

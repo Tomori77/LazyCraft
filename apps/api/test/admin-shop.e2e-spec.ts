@@ -180,7 +180,7 @@ describe('/api/admin/shop/entries (e2e)', () => {
     // 下架后不出现在 C 端商店
     const player = await playerToken();
     const shopRes = await request(app.getHttpServer()).get('/api/shop').set(authed(player)).expect(200);
-    expect((shopRes.body as Array<{ id: string }>).some((e) => e.id === id)).toBe(false);
+    expect((shopRes.body.entries as Array<{ id: string }>).some((e) => e.id === id)).toBe(false);
 
     await request(app.getHttpServer()).delete(`/api/admin/shop/entries/${id}`).set(authed(token)).expect(200);
   });
@@ -196,12 +196,12 @@ describe('/api/admin/shop/entries (e2e)', () => {
 
     const player = await playerToken();
     const before = await request(app.getHttpServer()).get('/api/shop').set(authed(player)).expect(200);
-    expect((before.body as Array<{ id: string }>).some((e) => e.id === id)).toBe(true);
+    expect((before.body.entries as Array<{ id: string }>).some((e) => e.id === id)).toBe(true);
 
     await request(app.getHttpServer()).delete(`/api/admin/shop/entries/${id}`).set(authed(token)).expect(200);
 
     const after = await request(app.getHttpServer()).get('/api/shop').set(authed(player)).expect(200);
-    expect((after.body as Array<{ id: string }>).some((e) => e.id === id)).toBe(false);
+    expect((after.body.entries as Array<{ id: string }>).some((e) => e.id === id)).toBe(false);
 
     await request(app.getHttpServer())
       .delete(`/api/admin/shop/entries/${randomUUID()}`)
@@ -232,5 +232,44 @@ describe('/api/admin/shop/entries (e2e)', () => {
       .set(authed(token))
       .send({ stock: 1 })
       .expect(404);
+  });
+
+  it('admin 改 sell_price → C 端回收清单随之变化（task-33）', async () => {
+    const token = await adminToken();
+    const id = `admin-e2e-rec-${randomUUID()}`;
+    // 初始不可回收（无 sell_price）
+    await request(app.getHttpServer())
+      .post('/api/admin/shop/entries')
+      .set(authed(token))
+      .send({ id, kind: 'item', item_id: 'wood', buy_price: 5 })
+      .expect(201);
+
+    const player = await playerToken();
+    const findInList = async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/shop/recyclables')
+        .set(authed(player))
+        .expect(200);
+      return (res.body as Array<{ entry_id: string; sell_price: number }>).find((e) => e.entry_id === id);
+    };
+    expect(await findInList()).toBeUndefined();
+
+    // 设置回收价 → 进入清单
+    await request(app.getHttpServer())
+      .patch(`/api/admin/shop/entries/${id}`)
+      .set(authed(token))
+      .send({ sell_price: 2 })
+      .expect(200);
+    expect((await findInList())!.sell_price).toBe(2);
+
+    // 置 null 移除回收价 → 退出清单
+    await request(app.getHttpServer())
+      .patch(`/api/admin/shop/entries/${id}`)
+      .set(authed(token))
+      .send({ sell_price: null })
+      .expect(200);
+    expect(await findInList()).toBeUndefined();
+
+    await request(app.getHttpServer()).delete(`/api/admin/shop/entries/${id}`).set(authed(token)).expect(200);
   });
 });

@@ -14,7 +14,7 @@
  */
 
 import type { ExternalIconTable } from '../resolve.js';
-import type { IconDef } from '../types.js';
+import type { SvgIconDef } from '../types.js';
 
 const s = (d: string) => ({ d });
 
@@ -51,7 +51,7 @@ export const LOCAL_EXTERNAL_TABLE: ExternalIconTable = {
 export function mergeExternalTables(
   ...tables: ReadonlyArray<ExternalIconTable | undefined>
 ): ExternalIconTable {
-  const merged: Record<string, IconDef> = {};
+  const merged: Record<string, SvgIconDef> = {};
   for (const table of tables) {
     if (table) Object.assign(merged, table);
   }

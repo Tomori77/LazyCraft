@@ -9,7 +9,7 @@
  * 这些是初版样式稿，比例与细节可后续迭代（见 docs/07-UI风格与图标系统.md）。
  */
 
-import type { IconDef, IconPath } from './types.js';
+import type { IconPath, SvgIconDef } from './types.js';
 
 /** 描边路径简写（最常用） */
 const s = (d: string): IconPath => ({ d });
@@ -20,7 +20,7 @@ const f = (d: string): IconPath => ({ d, fill: true });
 /* 技能                                                                */
 /* ------------------------------------------------------------------ */
 
-const SKILL_ICONS: ReadonlyArray<IconDef> = [
+const SKILL_ICONS: ReadonlyArray<SvgIconDef> = [
   { name: 'skill.attack', source: 'hand-drawn', paths: [
     s('M12 2.5l2.3 2.3V14L12 16.3 9.7 14V4.8z'), s('M7 15.3h10'), s('M12 16.3v5'),
   ] },
@@ -44,7 +44,7 @@ const SKILL_ICONS: ReadonlyArray<IconDef> = [
 /* 物品                                                                */
 /* ------------------------------------------------------------------ */
 
-const ITEM_ICONS: ReadonlyArray<IconDef> = [
+const ITEM_ICONS: ReadonlyArray<SvgIconDef> = [
   { name: 'item.ore', source: 'hand-drawn', paths: [
     s('M12 3l7 4.5v9L12 21l-7-4.5v-9z'), s('M12 3v18M5 7.5l7 4.5 7-4.5'),
   ] },
@@ -80,7 +80,7 @@ const ITEM_ICONS: ReadonlyArray<IconDef> = [
 /* 装备槽                                                              */
 /* ------------------------------------------------------------------ */
 
-const SLOT_ICONS: ReadonlyArray<IconDef> = [
+const SLOT_ICONS: ReadonlyArray<SvgIconDef> = [
   { name: 'slot.helmet', source: 'hand-drawn', paths: [
     s('M5 14a7 7 0 0114 0v3H5z'), s('M12 7v10'),
   ] },
@@ -118,7 +118,7 @@ const SLOT_ICONS: ReadonlyArray<IconDef> = [
 /* 界面零件                                                            */
 /* ------------------------------------------------------------------ */
 
-const UI_ICONS: ReadonlyArray<IconDef> = [
+const UI_ICONS: ReadonlyArray<SvgIconDef> = [
   { name: 'ui.settings', source: 'hand-drawn', paths: [
     s('M15 12a3 3 0 11-6 0 3 3 0 016 0z'),
     s('M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4'),
@@ -143,7 +143,7 @@ const UI_ICONS: ReadonlyArray<IconDef> = [
 ];
 
 /** 本体全部手绘图标（顺序即图库页展示顺序） */
-export const HAND_DRAWN_ICONS: ReadonlyArray<IconDef> = [
+export const HAND_DRAWN_ICONS: ReadonlyArray<SvgIconDef> = [
   ...SKILL_ICONS,
   ...ITEM_ICONS,
   ...SLOT_ICONS,
@@ -151,16 +151,16 @@ export const HAND_DRAWN_ICONS: ReadonlyArray<IconDef> = [
 ];
 
 /** 按名字索引，避免每次线性查找 */
-const BY_NAME: ReadonlyMap<string, IconDef> = new Map(
+const BY_NAME: ReadonlyMap<string, SvgIconDef> = new Map(
   HAND_DRAWN_ICONS.map((icon) => [icon.name, icon]),
 );
 
 /** 按名字取图标；不存在返回 undefined（调用方决定回退策略） */
-export function findIcon(name: string): IconDef | undefined {
+export function findIcon(name: string): SvgIconDef | undefined {
   return BY_NAME.get(name);
 }
 
 /** 按域列出图标（域 = name 的第一段，如 'skill' / 'item'） */
-export function listIconsByDomain(domain: string): IconDef[] {
+export function listIconsByDomain(domain: string): SvgIconDef[] {
   return HAND_DRAWN_ICONS.filter((icon) => icon.name.startsWith(`${domain}.`));
 }

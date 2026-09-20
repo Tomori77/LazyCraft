@@ -11,6 +11,7 @@
  *   改一轮再启动；如果每次只报第一个错，DLC 调试会变成"启动-改一个-再启动"的循环。
  */
 
+import { validateIcons } from '@lazycraft/icons';
 import type {
   AbstractResource,
   Content,
@@ -187,22 +188,11 @@ export class ContentRegistry implements Registry {
       }
     }
 
-    // 校验图标：name 非空 + paths 非空数组 + 每条 path 的 d 非空
-    // 这些是"前端渲染成空白"的配置错误：Map 按 name 去重，但拦不住空 path
-    for (const icon of this.icons.values()) {
-      if (icon.name.length === 0) {
-        errors.push(`[icon] name 不能是空字符串`);
-      }
-      if (icon.paths.length === 0) {
-        errors.push(`[icon:${icon.name}] paths 不能为空数组`);
-        continue;
-      }
-      for (const path of icon.paths) {
-        if (path.d.length === 0) {
-          errors.push(`[icon:${icon.name}] 存在 d 为空的绘制指令`);
-        }
-      }
-    }
+    // 校验图标：多形态完整性（svg 的 paths/d、emoji 的 char、
+    // raster 的 license/url/format）统一交给图标库的纯函数，
+    // 保证 Registry 启动自检与构建期校验用的是同一套规则（task-35）
+    const iconResult = validateIcons([...this.icons.values()]);
+    errors.push(...iconResult.errors);
 
     return { ok: errors.length === 0, errors };
   }
