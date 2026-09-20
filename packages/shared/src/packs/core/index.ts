@@ -10,6 +10,7 @@
  *   真实平衡性由后续具体技能 DLC 覆盖，core 包只负责打通"注册 → 校验 → 查询"通路。
  */
 
+import { HAND_DRAWN_ICONS } from '@lazycraft/icons';
 import type { ContentPack, Enemy, Item, SkillAction } from '../../types.js';
 import { SKILLS, SKILL_ATTACK, SKILL_MINING, SKILL_WOODCUTTING } from '../../data/skills.js';
 import { ACTIONS } from '../../data/actions.js';
@@ -158,5 +159,8 @@ export const CorePack: ContentPack = {
     // 抽象资源与槽位同样从核心包入口登记，engine 不再直接读常量表
     for (const resource of ABSTRACT_RESOURCES) registry.abstractResource(resource);
     for (const slot of EQUIPMENT_SLOTS) registry.slot(slot);
+
+    // 本体全部手绘图标也是"内容"：统一登记后随快照下发，前端无需另维护图标表
+    for (const icon of HAND_DRAWN_ICONS) registry.icon(icon);
   },
 };

@@ -32,3 +32,22 @@ export * from './data/enemies.js';
 
 // 共享核心类型契约（types.ts 是单一事实源）
 export * from './types.js';
+
+// 图标库转出：图标已作为 ContentKind 纳入 Registry，消费端（前端/后端）
+// 无需再单独声明 @lazycraft/icons 依赖即可拿到本体数据与渲染工具
+export {
+  HAND_DRAWN_ICONS,
+  findIcon,
+  listIconsByDomain,
+  renderIconSvg,
+  renderIconSymbol,
+  renderSprite,
+  renderCatalogSprite,
+  resolveIconRef,
+  externalKey,
+  extractIcons,
+  attributionFor,
+  EXTERNAL_ATTRIBUTIONS,
+  LOCAL_EXTERNAL_TABLE,
+  mergeExternalTables,
+} from '@lazycraft/icons';

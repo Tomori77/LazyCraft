@@ -34,4 +34,23 @@ export {
 export {
   resolveIconRef,
   type ResolvedIcon,
+  type ExternalIconTable,
+  externalKey,
 } from './resolve.js';
+
+export {
+  extractIcons,
+  type ExternalExtraction,
+  type ExtractedIcon,
+} from './external/extract.js';
+
+export {
+  EXTERNAL_ATTRIBUTIONS,
+  attributionFor,
+  type IconAttribution,
+} from './external/attribution.js';
+
+export {
+  LOCAL_EXTERNAL_TABLE,
+  mergeExternalTables,
+} from './external/table.js';

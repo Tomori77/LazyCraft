@@ -6,6 +6,15 @@
  * - 后端：用于权威结算（离线收益、战斗结算等）
  */
 
+import type { IconDef } from '@lazycraft/icons';
+
+/**
+ * 图标契约由 @lazycraft/icons 定义（图标库零依赖、可被前端/DLC 独立使用），
+ * 这里只做类型转出，让内容系统与消费端能从 @lazycraft/shared 单一入口拿到
+ * 与 Registry 同一份的 IconDef，避免两处定义漂移。
+ */
+export type { IconDef };
+
 /** 物品品质（白 / 蓝 / 紫 / 橙） */
 export type Quality = 'common' | 'uncommon' | 'rare' | 'epic';
 
@@ -218,9 +227,9 @@ export interface EquipmentSlotMeta {
 /**
  * 内容类别：Registry.get()/list() 的查询维度
  *
- * 为什么抽象资源与槽位也算内容？
+ * 为什么抽象资源 / 槽位 / 图标也算内容？
  *   它们和技能/物品一样是随 DLC 增删的数据；若只允许引擎内置，
- *   DLC 每加一种资源或一个部位都得改引擎源码，违背"内容即数据"铁律。
+ *   DLC 每加一种资源、一个部位或一枚图标都得改引擎源码，违背"内容即数据"铁律。
  */
 export type ContentKind =
   | 'skill'
@@ -228,7 +237,8 @@ export type ContentKind =
   | 'item'
   | 'enemy'
   | 'abstractResource'
-  | 'slot';
+  | 'slot'
+  | 'icon';
 
 /** 按类别存储的内容联合类型 */
 export type Content =
@@ -237,7 +247,8 @@ export type Content =
   | Item
   | Enemy
   | AbstractResource
-  | EquipmentSlotMeta;
+  | EquipmentSlotMeta
+  | IconDef;
 
 /** Registry.validate() 的返回结构：ok=false 时 errors 包含全部不一致项 */
 export interface ValidateResult {
@@ -251,7 +262,7 @@ export interface ValidateResult {
  * 引擎对所有"内容"的统一入口，DLC 通过 ContentPack.register 注入。
  *
  * 双视角设计：
- *   - 写视角（DLC 用）：skill()/action()/item()/enemy()/abstractResource()/slot() 逐条登记
+ *   - 写视角（DLC 用）：skill()/action()/item()/enemy()/abstractResource()/slot()/icon() 逐条登记
  *   - 读视角（引擎用）：register(pack) 整包载入、get(id, type) 精确取、
  *     list(type) 列一类、validate() 启动自检
  */
@@ -269,6 +280,15 @@ export interface Registry {
   abstractResource(resource: AbstractResource): void;
   /** 注册一个装备槽位：DLC 增删部位不应改引擎源码 */
   slot(meta: EquipmentSlotMeta): void;
+  /**
+   * 注册一枚图标。
+   *
+   * 为什么图标也是内容？
+   *   图标由技能/物品/动作按 name 引用，DLC 新增或覆盖一枚图标
+   *   （例如把某个物品换成自家美术）不应改引擎源码，也不该走前端写死表；
+   *   统一登记进 Registry 后，`/api/content` 快照与内容包天然同源。
+   */
+  icon(def: IconDef): void;
 
   /* 读视角：引擎消费用 */
   /** 整包注册一个内容包 */

@@ -19,6 +19,9 @@
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@lazycraft/icons": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^6.0.2",
     "vitest": "^2.1.8"

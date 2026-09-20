@@ -9,6 +9,7 @@
  * 抽象资源 / 装备槽位已纳入 Registry（见 types.ts ContentKind），
  *   快照与 skills/actions/itemCatalog 同口径从 Registry 取，
  *   避免"常量表内容 ≠ 引擎认识的内容"这种分叉再次出现。
+ * 图标（icons）同理：本体 31 枚手绘 + DLC 覆盖/新增都从图标桶取。
  */
 
 import type {
@@ -16,6 +17,7 @@ import type {
   Content,
   ContentKind,
   EquipmentSlotMeta,
+  IconDef,
   Item,
   Skill,
   SkillAction,
@@ -30,6 +32,8 @@ export interface ContentSnapshot {
   abstractResources: readonly AbstractResource[];
   equipmentSlots: readonly EquipmentSlotMeta[];
   itemCatalog: readonly Item[];
+  /** 全部已注册图标（本体手绘 + DLC 登记），前端统一从此渲染 */
+  icons: readonly IconDef[];
 }
 
 /**
@@ -59,6 +63,7 @@ export function buildContentSnapshot(registry: ContentRegistry): ContentSnapshot
     abstractResources: listOf<AbstractResource>(registry, 'abstractResource'),
     equipmentSlots: listOf<EquipmentSlotMeta>(registry, 'slot'),
     itemCatalog: listOf<Item>(registry, 'item'),
+    icons: listOf<IconDef>(registry, 'icon'),
   };
 }
 

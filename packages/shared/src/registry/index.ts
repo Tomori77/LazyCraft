@@ -18,6 +18,7 @@ import type {
   ContentPack,
   Enemy,
   EquipmentSlotMeta,
+  IconDef,
   Item,
   Registry,
   Skill,
@@ -39,6 +40,7 @@ export class ContentRegistry implements Registry {
   private readonly enemies = new Map<string, Enemy>();
   private readonly abstractResources = new Map<string, AbstractResource>();
   private readonly slots = new Map<string, EquipmentSlotMeta>();
+  private readonly icons = new Map<string, IconDef>();
 
   /** 已注册的内容包标识（用于重复注册防御和审计） */
   private readonly registeredPacks: string[] = [];
@@ -69,6 +71,10 @@ export class ContentRegistry implements Registry {
 
   slot(meta: EquipmentSlotMeta): void {
     this.slots.set(meta.id, meta);
+  }
+
+  icon(def: IconDef): void {
+    this.icons.set(def.name, def);
   }
 
   /* ------------------------------------------------------------------ */
@@ -116,6 +122,8 @@ export class ContentRegistry implements Registry {
    *   5. slot.id 非空且 order 全局唯一
    *      （Map 已按 id 去重，空 id / 重复 order 是 Map 拦不住、
    *       却会让前端排序不稳定、槽位落不到人偶上的配置错误）
+   *   6. icon.name 非空、icon.paths 非空数组、每条 path 的 d 非空字符串
+   *      （图标缺 path 前端会渲染成空白，是 Map 拦不住、肉眼也难发现的配置错误）
    *
    * 为什么 error 是字符串而不是结构化对象？
    *   启动阶段错误直接打印到控制台 / 写入日志，人读优先；
@@ -179,6 +187,23 @@ export class ContentRegistry implements Registry {
       }
     }
 
+    // 校验图标：name 非空 + paths 非空数组 + 每条 path 的 d 非空
+    // 这些是"前端渲染成空白"的配置错误：Map 按 name 去重，但拦不住空 path
+    for (const icon of this.icons.values()) {
+      if (icon.name.length === 0) {
+        errors.push(`[icon] name 不能是空字符串`);
+      }
+      if (icon.paths.length === 0) {
+        errors.push(`[icon:${icon.name}] paths 不能为空数组`);
+        continue;
+      }
+      for (const path of icon.paths) {
+        if (path.d.length === 0) {
+          errors.push(`[icon:${icon.name}] 存在 d 为空的绘制指令`);
+        }
+      }
+    }
+
     return { ok: errors.length === 0, errors };
   }
 
@@ -200,6 +225,8 @@ export class ContentRegistry implements Registry {
         return this.abstractResources;
       case 'slot':
         return this.slots;
+      case 'icon':
+        return this.icons;
       default:
         // 类型层已穷尽，防御未知运行时字符串
         throw new Error(`unknown content kind: ${String(kind)}`);

@@ -164,6 +164,10 @@ importers:
         version: 2.1.9(@types/node@24.13.4)(lightningcss@1.33.0)
 
   packages/shared:
+    dependencies:
+      '@lazycraft/icons':
+        specifier: workspace:*
+        version: link:../icons
     devDependencies:
       typescript:
         specifier: ^6.0.2
