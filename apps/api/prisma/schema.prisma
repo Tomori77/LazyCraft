@@ -225,3 +225,27 @@ model AdminAuditLog {
   @@index([targetType, targetId])
   @@map("admin_audit_logs")
 }
+
+/* ================================================================== */
+/* 内容包启用状态（task-41）                                             */
+/* ================================================================== */
+
+// 已编译 pack 的启停开关：一行 = 一个被显式改过状态的 pack。
+//
+// 为什么单开一张表而不是复用配置表 / 单行 JSON？
+//   1. 语义清晰：一行就是"某 pack 的启用状态"，可直接建唯一约束防重复；
+//   2. 可审计：每次 PATCH 都有明确 target（content_pack:<id>），与审计表天然对齐；
+//   3. 与内容解耦：内容本身是编译进产物的代码，这张表只存"开关"，
+//      将来加 pack 不需要动表结构。
+//
+// 为什么缺行 = 启用？
+//   首次部署、新编译进来的 pack、以及从未被管理员改过的 pack，表里都没有记录；
+//   若把"缺行"解释为停用，新增 pack 会因为没人开开关而被静默隐藏。
+//   故读路径一律"无记录 → 启用"，写入只在管理员真正切换时发生。
+model ContentPackState {
+  id        String   @id
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("content_pack_state")
+}

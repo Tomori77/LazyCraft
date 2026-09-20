@@ -2770,3 +2770,227 @@ select {
     gap: 10px;
   }
 }
+
+/* ================================================================== */
+/* 管理后台「内容」页签（task-41）                                       */
+/* 全部使用 admin-content- 前缀，避免覆盖 task-38/39/40 既有样式。       */
+/* ================================================================== */
+
+.admin-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px;
+  gap: 10px;
+}
+
+.admin-content-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--brass);
+  border-radius: 6px;
+  background: var(--brass-weak);
+  color: var(--wood);
+  font-size: 12.5px;
+}
+
+.admin-content-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.admin-content-pack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.admin-content-pack.is-on {
+  border-left: 3px solid var(--brass);
+}
+
+.admin-content-pack.is-off {
+  border-left: 3px solid var(--line-2);
+  background: var(--paper-3);
+}
+
+/* 待重启：开关值与进程生效值不一致，用虚线边强调"还需一步才生效" */
+.admin-content-pack.is-pending {
+  border-style: dashed;
+}
+
+.admin-content-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-content-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-content-name {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.admin-content-version {
+  color: var(--wood-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-content-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-content-badge {
+  font-size: 11.5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  white-space: nowrap;
+}
+
+.admin-content-badge.is-on {
+  color: var(--wood);
+  background: var(--brass-weak);
+  border-color: var(--brass);
+}
+
+.admin-content-badge.is-off {
+  color: var(--wood-3);
+  background: var(--paper-3);
+}
+
+.admin-content-badge.is-pending {
+  color: #8a5a1b;
+  background: #f6e6c8;
+  border-color: #d9a441;
+}
+
+.admin-content-badge.is-inactive {
+  color: var(--wood-3);
+  background: transparent;
+  border-style: dashed;
+}
+
+.admin-content-danger {
+  color: #9a3324;
+  border-color: #d8a79e;
+}
+
+.admin-content-danger:hover:not(:disabled) {
+  background: #f5e1dd;
+}
+
+.admin-content-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(44, 33, 24, 0.42);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.admin-content-modal {
+  width: min(460px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--paper-2);
+  border: 1px solid var(--wood);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 14px;
+}
+
+.admin-content-modal-head {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-3);
+}
+
+.admin-content-modal-head h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--wood);
+}
+
+.admin-content-confirm-body {
+  margin: 12px 16px 0;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.admin-content-confirm-hint {
+  margin: 10px 16px 0;
+  font-size: 12px;
+  color: var(--wood-3);
+}
+
+.admin-content-confirm-warn {
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: #8a5a1b;
+  background: #f6e6c8;
+  border: 1px solid #d9a441;
+  border-radius: 6px;
+}
+
+.admin-content-confirm-actions {
+  margin: 8px 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--wood-3);
+}
+
+.admin-content-confirm-actions .admin-mono {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.admin-content-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 16px 0;
+}
+
+/* 1280x720 验收下限：窄高度下压缩内边距，保证一屏可见 */
+@media (max-height: 760px) {
+  .admin-content {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+
+  .admin-content-pack {
+    padding: 9px 12px;
+  }
+}

@@ -3,6 +3,7 @@ import type { AdminAuditPage } from './api.ts';
 import { fetchAuditLogs } from './api.ts';
 import { ShopAdminTab } from './shop-admin.tsx';
 import { PlayerAdminTab } from './player-admin.tsx';
+import { ContentAdminTab } from './content-admin.tsx';
 import { useAuth } from '../auth/auth.tsx';
 import { useT } from '../i18n/index.ts';
 import { Icon } from '../icons/icon.tsx';
@@ -72,30 +73,19 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         </nav>
 
         <div className="admin-body">
-          {/* shop 支由 task-39 提供、players 支由 task-40 提供；content 仍为占位（task-41）。
-              task-40 只在此追加 players 分支，shop 支原样保留。 */}
+          {/* shop/players/content 分别由 task-39/40/41 提供；audit 在 task-38 已实现。
+              task-41 只在此追加 content 分支，shop/players 支原样保留。 */}
           {tab === 'shop' ? (
             <ShopAdminTab />
           ) : tab === 'players' ? (
             <PlayerAdminTab />
-          ) : tab === 'audit' ? (
-            <AuditTab />
+          ) : tab === 'content' ? (
+            <ContentAdminTab />
           ) : (
-            <TabPlaceholder tab={tab} />
+            <AuditTab />
           )}
         </div>
       </section>
-    </div>
-  );
-}
-
-/** 未实现页签的占位：明确告诉使用者"内容在后续任务"，不假装可用 */
-function TabPlaceholder({ tab }: { tab: AdminTab }) {
-  const { t } = useT();
-  return (
-    <div className="admin-placeholder">
-      <p className="admin-placeholder-title">{t(`admin.tab.${tab}`)}</p>
-      <p>{t('admin.placeholder')}</p>
     </div>
   );
 }

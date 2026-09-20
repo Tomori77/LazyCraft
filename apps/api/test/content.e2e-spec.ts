@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { ACTIONS, ATTRIBUTE_DEFINITIONS, HAND_DRAWN_ICONS, ITEMS, SKILLS } from '@lazycraft/shared';
+import { ACTIONS, ATTRIBUTE_DEFINITIONS, BUILTIN_PACKS, HAND_DRAWN_ICONS, ITEMS, SKILLS } from '@lazycraft/shared';
 import { ContentModule } from './../src/content/content.module.js';
 
 // 只挂载 ContentModule 而非整个 AppModule：内容接口公开且不碰数据库，
@@ -43,6 +43,10 @@ describe('ContentController (e2e)', () => {
     expect(res.body.icons).toHaveLength(HAND_DRAWN_ICONS.length);
     // 属性元数据 = 本体属性全集（前端属性面板按它渲染）
     expect(res.body.attributes).toHaveLength(ATTRIBUTE_DEFINITIONS.length);
+    // task-41 回归：默认（未注入开关服务）为"全部启用"，快照必须带 packs 元信息
+    expect(Array.isArray(res.body.packs)).toBe(true);
+    expect(res.body.packs).toHaveLength(BUILTIN_PACKS.length);
+    expect(res.body.packs[0]).toMatchObject({ id: 'core', enabled: true });
   });
 
   it('返回的每条动作都带 tier，技能都带分组字段', async () => {

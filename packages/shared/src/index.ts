@@ -20,6 +20,8 @@ export * from './skill/skill-service.js';
 // 内容注册表 + 内置核心包（task-09）：DLC 接入的注册通路
 export * from './registry/index.js';
 export * from './packs/core/index.js';
+// 内置 pack 清单 + 启用集合选择（task-41）：管理后台据此枚举/启停
+export * from './packs/index.js';
 
 // 掉落 / 词缀 / 装备生成（task-14）：刷宝系统的数据与计算
 export * from './loot/index.js';
