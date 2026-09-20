@@ -7,6 +7,7 @@ import {
 import { Prisma, PrismaClient, type ShopEntryRow } from '../lib/prisma-client/client.js';
 import { EQUIPMENT_TEMPLATES } from '@lazycraft/shared';
 import { ContentService } from '../content/content.service.js';
+import { AdminAuditService } from './admin-audit.service.js';
 import type { CreateShopEntryDto, UpdateShopEntryDto } from './dto/admin-shop.dto.js';
 
 /** 管理视角的条目视图：含 listed / sort_order / 时间戳（与 C 端裸数组形状区分） */
@@ -40,6 +41,7 @@ export class AdminShopService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly content: ContentService,
+    private readonly audit: AdminAuditService,
   ) {}
 
   /** 列出全部条目（含未上架），管理页需要看到完整价目表 */
@@ -50,12 +52,13 @@ export class AdminShopService {
     return rows.map(toAdminView);
   }
 
-  /** 新增条目：校验 kind 与引用有效性、id 唯一 */
-  async create(dto: CreateShopEntryDto) {
+  /** 新增条目：校验 kind 与引用有效性、id 唯一；成功后写审计 */
+  async create(adminAccountId: string, dto: CreateShopEntryDto) {
     const { itemId, templateId, quality } = this.resolveRefs(dto.kind, dto);
 
+    let row: ShopEntryRow;
     try {
-      const row = await this.prisma.shopEntryRow.create({
+      row = await this.prisma.shopEntryRow.create({
         data: {
           id: dto.id,
           kind: dto.kind,
@@ -70,17 +73,26 @@ export class AdminShopService {
           sortOrder: dto.sort_order ?? 0,
         },
       });
-      return toAdminView(row);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException(`商店条目 id 已存在: ${dto.id}`);
       }
       throw error;
     }
+
+    // 审计在主操作成功之后写：记录的是真正落库的条目，失败不阻塞响应
+    await this.audit.record({
+      adminAccountId,
+      action: 'shop_entry.create',
+      targetType: 'shop_entry',
+      targetId: row.id,
+      detail: { created: toAdminView(row) },
+    });
+    return toAdminView(row);
   }
 
-  /** 修改条目：kind 不可改；传入的引用字段重新做有效性校验 */
-  async update(id: string, dto: UpdateShopEntryDto) {
+  /** 修改条目：kind 不可改；传入的引用字段重新做有效性校验；成功后写审计 */
+  async update(adminAccountId: string, id: string, dto: UpdateShopEntryDto) {
     const existing = await this.prisma.shopEntryRow.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`商店条目不存在: ${id}`);
 
@@ -108,14 +120,29 @@ export class AdminShopService {
     }
 
     const row = await this.prisma.shopEntryRow.update({ where: { id }, data });
+    // 审计记"改前 → 改后"：只留变更字段就够复盘，但整行快照更省事且无歧义
+    await this.audit.record({
+      adminAccountId,
+      action: 'shop_entry.update',
+      targetType: 'shop_entry',
+      targetId: id,
+      detail: { before: toAdminView(existing), after: toAdminView(row), patch: dto },
+    });
     return toAdminView(row);
   }
 
-  /** 删除条目；不存在转 404 */
-  async remove(id: string) {
+  /** 删除条目；不存在转 404；成功后写审计 */
+  async remove(adminAccountId: string, id: string) {
     const existing = await this.prisma.shopEntryRow.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`商店条目不存在: ${id}`);
     await this.prisma.shopEntryRow.delete({ where: { id } });
+    await this.audit.record({
+      adminAccountId,
+      action: 'shop_entry.delete',
+      targetType: 'shop_entry',
+      targetId: id,
+      detail: { deleted: toAdminView(existing) },
+    });
     return { id, deleted: true };
   }
 

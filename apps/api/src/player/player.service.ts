@@ -16,11 +16,13 @@ export class PlayerService {
     private readonly contentService: ContentService,
   ) {}
 
-  async getPlayer(accountId: string): Promise<PlayerData> {
+  async getPlayer(accountId: string, role: string): Promise<PlayerData> {
     // player.name 与存档由 readWithPlayer 一条 LEFT JOIN 取回：
     // 原先 ensurePlayer + read 是两条串行查询（远程 DB 下 ≈160ms），
     // 而玩家名本就和 data 同行；懒创建/迁移语义仍由 read() 兜底。
     const { name, data } = await this.saveService.readWithPlayer(accountId);
-    return buildPlayerData(name, this.contentService.getSnapshot(), data);
+    // role 是账号属性而非存档内容，来自 JwtStrategy 已读出的 request.user，
+    // 因此这里不再回库查一次账号（同一请求内避免重复读 accounts 表）。
+    return buildPlayerData(name, this.contentService.getSnapshot(), data, role);
   }
 }

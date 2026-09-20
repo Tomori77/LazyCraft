@@ -15,7 +15,9 @@ export class PlayerController {
   constructor(private readonly playerService: PlayerService) {}
 
   @Get()
-  getPlayer(@CurrentUser() user: { id: string }) {
-    return this.playerService.getPlayer(user.id);
+  getPlayer(@CurrentUser() user: { id: string; role: string }) {
+    // role 直接取自 JwtStrategy.validate() 的结果（每请求按 5s TTL 回库核验），
+    // 前端据此决定是否显示管理后台入口；只暴露自身角色，不泄露他人。
+    return this.playerService.getPlayer(user.id, user.role);
   }
 }

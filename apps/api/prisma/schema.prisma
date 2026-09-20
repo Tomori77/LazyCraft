@@ -182,3 +182,42 @@ model ShopEntryRow {
   @@index([listed, sortOrder])
   @@map("shop_entries")
 }
+
+/* ================================================================== */
+/* 管理审计日志（task-38）                                              */
+/* ================================================================== */
+
+// 管理操作审计：一写一条不可变记录（谁 / 何时 / 对谁 / 改了什么）。
+//
+// 为什么 admin_account_id 不建外键？
+//   审计日志是"历史凭证"，必须比它记录的对象活得更久。若按 accounts 建
+//   ON DELETE CASCADE，删掉管理员账号就等于抹掉他的操作痕迹；若用
+//   RESTRICT 又会反过来阻止删除账号。故这里只存 accountId 字符串，
+//   不建约束——账号没了，日志仍在（detail 里已带当时的操作快照）。
+//
+// 为什么 detail 用 Json 而不是若干列？
+//   各管理动作的"改了什么"形状完全不同（改价 / 发放物品 / 启停 DLC），
+//   拆列会让日志表随管理面扩大而不断加列；审计只被人工查读、不参与
+//   业务查询，jsonb 正好承载异构明细。可被过滤的维度（target/action）
+//   已单独成列，无需打开 jsonb。
+model AdminAuditLog {
+  id             String   @id @default(uuid())
+  /// 操作者账号 id（字符串，不建外键，见上）
+  adminAccountId String   @map("admin_account_id")
+  /// 动作标识（如 shop_entry.create / shop_entry.update）
+  action         String
+  /// 目标类型（如 shop_entry / player / content_pack）
+  targetType     String   @map("target_type")
+  targetId       String?  @map("target_id")
+  /// 操作明细快照（异构，见上）
+  detail         Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // 审计列表永远"最新在前"，按时间倒序建索引让分页扫描稳定走索引
+  @@index([createdAt(sort: Desc)])
+  // 按操作者查"某人做过什么"
+  @@index([adminAccountId])
+  // 按 target 过滤（审计页的筛选条件）
+  @@index([targetType, targetId])
+  @@map("admin_audit_logs")
+}

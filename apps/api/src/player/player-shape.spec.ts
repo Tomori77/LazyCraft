@@ -140,6 +140,11 @@ describe('buildPlayerAttributes', () => {
 });
 
 describe('buildPlayerData', () => {
+  it('role 缺省为 player，显式传入 admin 时原样返回（task-38）', () => {
+    expect(buildPlayerData('p', snapshot, v3Data({})).role).toBe('player');
+    expect(buildPlayerData('p', snapshot, v3Data({}), 'admin').role).toBe('admin');
+  });
+
   it('组装完整契约：技能 map / 属性 / 槽位 map / 容器 / 容量', () => {
     const sword = equipment({ slot: 'main_hand' });
     const data = v3Data({

@@ -140,6 +140,11 @@ const UI_ICONS: ReadonlyArray<SvgIconDef> = [
   { name: 'ui.queue', source: 'hand-drawn', paths: [
     s('M4 7h11M4 12h11M4 17h11M18 6v6M18 12l2 2'), s('M18 16.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z'),
   ] },
+  // 管理后台入口：盾牌 + 钥匙孔，表达"受权限保护的控制台"
+  { name: 'ui.admin', source: 'hand-drawn', paths: [
+    s('M12 3l7 2.5v6c0 4.2-2.9 7.4-7 9.5-4.1-2.1-7-5.3-7-9.5v-6z'),
+    f('M12 9.4a1.9 1.9 0 011 3.5V16h-2v-3.1a1.9 1.9 0 011-3.5z'),
+  ] },
   { name: 'ui.flame-brand', source: 'hand-drawn', paths: [
     s('M12 3.5c3 4.5 5.5 7 5.5 10.5a5.5 5.5 0 11-11 0c0-2.2 1-4 2.6-6 .8 1.4 1.6 2 2.5 2 0-2.2-.4-4 .4-6.5z'),
   ] },

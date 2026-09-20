@@ -20,6 +20,8 @@ export interface PlayerSkillProgress {
 
 export interface PlayerData {
   name: string;
+  /** 当前账号自身角色（'player' / 'admin'，task-38）；仅用于前端决定是否显示管理入口 */
+  role: string;
   level: number;
   skills: Record<string, PlayerSkillProgress>;
   /** 最终人物属性（task-34）：属性 id → 数值，展示名/格式由 /api/content 的属性元数据驱动 */

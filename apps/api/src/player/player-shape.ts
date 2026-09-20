@@ -40,6 +40,14 @@ export interface PlayerSkillProgress {
 /** 个人信息面板的聚合结果；字段形状与前端 `PlayerData` 一致 */
 export interface PlayerData {
   name: string;
+  /**
+   * 当前账号自身的角色（'player' / 'admin'）。
+   *
+   * task-38：前端需要据此决定是否渲染「管理后台」入口。只暴露**自身**角色，
+   * 不含他人信息；由 PlayerService 从 JWT 校验结果注入（见 player.service.ts），
+   * 不走存档（存档是游戏数据，角色是账号属性，两者不同源）。
+   */
+  role: string;
   level: number;
   skills: Record<string, PlayerSkillProgress>;
   /** 最终人物属性（task-34）：属性 id → 数值，含装备与派生基础值 */
@@ -158,11 +166,15 @@ function capacityOf(data: Partial<SaveDataV3>, container: 'inventory' | 'storage
  *
  * carry 的 used 刻意取数组长度（格数）而不是物品总数量——前端显示的是
  * "12/100 格"，堆叠 999 个也只占一格，与容量校验口径一致。
+ *
+ * role 来自账号而非存档，故由调用方（service，取 JWT 校验结果）传入；
+ * 缺省 'player' 让纯函数单测不必构造账号上下文。
  */
 export function buildPlayerData(
   name: string,
   snapshot: Pick<ContentSnapshot, 'skills' | 'equipmentSlots'>,
   data: Partial<SaveDataV3>,
+  role: string = 'player',
 ): PlayerData {
   const inventory = asItems(data.inventory);
   const storage = asItems(data.storage);
@@ -175,6 +187,7 @@ export function buildPlayerData(
 
   return {
     name,
+    role,
     level: calculatePersonLevel(skillLevelMap, attributes),
     skills,
     attributes,

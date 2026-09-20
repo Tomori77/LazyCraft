@@ -2,7 +2,7 @@
  * 图标入库测试（task-29）
  *
  * 覆盖：
- *   1. CorePack 注册后图标桶数量 = 本体手绘图标数（31），可按名精确取
+ *   1. CorePack 注册后图标桶数量 = 本体手绘图标数（32 + task-38 的 ui.admin = 33），可按名精确取
  *   2. validate() 对"空 name / 空 paths / 空 d"的坏图标报错
  *   3. buildContentSnapshot().icons 非空且与 Registry 同源
  */
@@ -32,7 +32,8 @@ describe('图标注册（Registry icon 桶）', () => {
 
     const icons = registry.list('icon') as IconDef[];
     expect(icons).toHaveLength(HAND_DRAWN_ICONS.length);
-    expect(icons).toHaveLength(32);
+    // 数量硬断言与 catalog 同步维护：task-38 新增 ui.admin，本体手绘共 33 枚
+    expect(icons).toHaveLength(33);
   });
 
   it('get(name, icon) 可按名字精确取回', () => {

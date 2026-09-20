@@ -17,6 +17,7 @@ import { CenterOverlay } from './overlay/center-overlay.tsx';
 import { ProfilePage } from './profile/profile-page.tsx';
 import { ShopPage } from './shop/shop-page.tsx';
 import { QueuePanel } from './queue/queue-panel.tsx';
+import { AdminPanel } from './admin/admin-panel.tsx';
 import { useAuth } from './auth/auth.tsx';
 
 type ActiveOverlay = 'profile' | 'shop' | 'queue' | null;
@@ -78,6 +79,11 @@ function GameShell({
   const { content, loading, error, refreshContent } = useContent();
   const { logout } = useAuth();
   const [inventorySearch, setInventorySearch] = useState('');
+  // 管理后台是独立全屏控制台（见 admin-panel.tsx 的形态取舍），
+  // 与中栏悬浮页互不干扰：打开后台时它盖在最上层，关闭即回到游戏。
+  const [adminOpen, setAdminOpen] = useState(false);
+
+  const isAdmin = player?.role === 'admin';
 
   const onDragStartItem = (item: CarriedItem) =>
     setDraggedEquipment(item.kind === 'equipment' ? item : null);
@@ -166,6 +172,13 @@ function GameShell({
                   <Icon name="ui.queue" size={14} />
                   {t('queue.title')}
                 </button>
+                {/* 仅管理员可见：非 admin 不渲染入口（后端仍会 403，前端只是不给无效操作） */}
+                {isAdmin && (
+                  <button type="button" className="fn-btn" onClick={() => setAdminOpen(true)}>
+                    <Icon name="ui.admin" size={14} />
+                    {t('admin.title')}
+                  </button>
+                )}
                 <SettingsPanel />
                 <button type="button" className="fn-btn" onClick={logout}>
                   <Icon name="ui.logout" size={14} />
@@ -211,6 +224,8 @@ function GameShell({
             </div>
           </aside>
         </div>
+
+        {adminOpen && isAdmin && <AdminPanel onClose={() => setAdminOpen(false)} />}
       </main>
     </IconRegistryProvider>
   );
