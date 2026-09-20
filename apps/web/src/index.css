@@ -2124,3 +2124,649 @@ select {
   font-variant-numeric: tabular-nums;
   color: var(--wood-2);
 }
+
+/* ---------- 管理后台·商店页（task-39） ----------
+ * 布局取舍：表格用**横向滚动**而非列收缩——11 列在 1280 下收缩会让
+ * id/引用/价格被省略号吞掉，横滚 + 表头 sticky 保证每列始终可读。
+ * 复用 task-38 的 .admin-table / .admin-table-wrap 基类，这里只做商店页增量。
+ * 全部类名以 admin-shop- 前缀，避免与 task-40/41 的样式互相覆盖。 */
+.admin-shop {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px;
+  gap: 10px;
+}
+
+.admin-shop-headline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 横向滚动：min-width 保证所有列保持可读，而不是被 flex 压扁 */
+.admin-shop-table-wrap {
+  overflow: auto;
+}
+
+.admin-shop-table {
+  min-width: 1080px;
+}
+
+.admin-shop-table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.admin-shop-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-shop-row-off td {
+  opacity: 0.62;
+}
+
+.admin-shop-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.admin-shop-ref-name {
+  font-size: 11px;
+  color: var(--wood-3);
+}
+
+.admin-shop-badge {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--paper-3);
+  color: var(--wood-2);
+}
+
+.admin-shop-badge.is-on {
+  border-color: var(--forest);
+  color: #2f5b3e;
+  background: #e6efe6;
+}
+
+.admin-shop-badge.is-off {
+  border-color: var(--line-2);
+  color: var(--wood-3);
+}
+
+.admin-shop-badge.is-rec {
+  margin-left: 6px;
+  border-color: var(--brass-2);
+  color: var(--brass-2);
+  background: var(--brass-weak);
+}
+
+.admin-shop-actions {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.admin-shop-danger {
+  color: #a5342a;
+  border-color: #d9a49d;
+}
+
+.admin-shop-danger:hover {
+  background: #f7e6e3;
+}
+
+/* ---------- 商店页：新增/编辑/删除浮层 ---------- */
+.admin-shop-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(44, 33, 24, 0.45);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.admin-shop-modal {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--paper-2);
+  border: 1px solid var(--wood);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-shop-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-shop-modal-head h3 {
+  font-size: 16px;
+  color: var(--wood);
+}
+
+.admin-shop-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.admin-shop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--wood-2);
+}
+
+.admin-shop-field-wide {
+  grid-column: 1 / -1;
+}
+
+.admin-shop-field input[type='text'],
+.admin-shop-field input[type='number'],
+.admin-shop-field input:not([type]),
+.admin-shop-field select {
+  border: 1px solid var(--line-2);
+  background: var(--paper);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12.5px;
+  color: var(--ink);
+  width: 100%;
+}
+
+.admin-shop-field small {
+  font-size: 11px;
+  color: var(--wood-3);
+}
+
+.admin-shop-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-shop-static {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: 6px;
+  background: var(--paper-3);
+  font-size: 12.5px;
+  color: var(--wood-2);
+}
+
+.admin-shop-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-shop-confirm {
+  width: min(420px, 100%);
+}
+
+.admin-shop-confirm-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.admin-shop-confirm-warn {
+  margin: 0;
+  font-size: 12px;
+  color: #a5342a;
+}
+
+/* ---------- 管理后台·玩家页（task-40） ----------
+ * 布局取舍：**左右双栏**（列表 + 详情），两栏各自内部纵向滚动。
+ *   1280×720 下控制台可用高度约 700px，单栏堆叠会把详情快照压到不足一屏；
+ *   双栏让"筛选定位玩家"与"看/改这个玩家"互不遮挡。两栏都 min-width:0
+ *   （否则 flex 子项不会收缩）并 overflow:auto，窄屏不横向溢出。
+ * 全部类名以 admin-player- 前缀，避免与 task-38/39/41 的样式互相覆盖。 */
+.admin-player {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.admin-player-list {
+  flex: 0 0 46%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-player-detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.admin-player-table-wrap {
+  /* 复用 .admin-table-wrap 的 flex/min-height 规则，这里只保证列不换行挤压 */
+  min-width: 0;
+}
+
+.admin-player-table td {
+  white-space: nowrap;
+}
+
+.admin-player-row {
+  cursor: pointer;
+}
+
+.admin-player-row.is-active {
+  background: var(--brass-weak);
+  box-shadow: inset 3px 0 0 var(--brass);
+}
+
+.admin-player-summary {
+  color: var(--wood-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-player-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--paper-3);
+  color: var(--wood-2);
+  font-size: 11.5px;
+}
+
+.admin-player-badge.is-admin {
+  border-color: var(--brass);
+  color: var(--brass-2);
+  background: var(--brass-weak);
+}
+
+.admin-player-badge.is-banned {
+  border-color: #a5342a;
+  color: #a5342a;
+  background: rgba(165, 52, 42, 0.1);
+}
+
+.admin-player-badge.is-ok {
+  border-color: #4a7a4a;
+  color: #3f6b3f;
+  background: rgba(74, 122, 74, 0.1);
+}
+
+.admin-player-hint {
+  color: var(--wood-3);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.admin-player-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.admin-player-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-3);
+}
+
+.admin-player-panel-head h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  color: var(--wood);
+}
+
+.admin-player-panel-head .admin-mono {
+  font-size: 11.5px;
+}
+
+.admin-player-panel-badges {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.admin-player-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-player-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: 6px;
+  background: var(--paper-2);
+}
+
+.admin-player-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--wood-2);
+}
+
+.admin-player-field select,
+.admin-player-field input {
+  border: 1px solid var(--line-2);
+  background: var(--paper);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  min-width: 150px;
+}
+
+.admin-player-field small {
+  color: var(--wood-3);
+  font-size: 11px;
+}
+
+.admin-player-reset {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--wood-2);
+}
+
+.admin-player-danger {
+  border-color: #a5342a !important;
+  color: #a5342a !important;
+}
+
+.admin-player-notice {
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--brass);
+  border-radius: 6px;
+  background: var(--brass-weak);
+  color: var(--brass-2);
+  font-size: 12.5px;
+}
+
+.admin-player-snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-player-block {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--paper);
+}
+
+.admin-player-block h4 {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--wood);
+}
+
+.admin-player-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.admin-player-kv > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-player-kv dt {
+  color: var(--wood-3);
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+.admin-player-kv dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-player-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-player-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--paper-3);
+  font-size: 12px;
+  color: var(--wood-2);
+}
+
+.admin-player-chip b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-player-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-player-skill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--wood-2);
+}
+
+.admin-player-skill b {
+  color: var(--ink);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-player-skill small {
+  color: var(--wood-3);
+  min-width: 76px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-player-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.admin-player-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--paper-3);
+  font-size: 12px;
+  color: var(--wood-2);
+  max-width: 100%;
+}
+
+.admin-player-item.is-equipment {
+  border-color: var(--brass);
+}
+
+.admin-player-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.admin-player-item b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-player-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 5px;
+}
+
+.admin-player-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper-3);
+  min-width: 0;
+}
+
+.admin-player-slot.is-on {
+  border-color: var(--brass);
+  background: var(--brass-weak);
+}
+
+.admin-player-slot-name {
+  color: var(--wood-3);
+  font-size: 11px;
+}
+
+.admin-player-slot-item {
+  color: var(--ink);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-player-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(44, 33, 24, 0.42);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.admin-player-modal {
+  width: min(440px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--paper-2);
+  border: 1px solid var(--wood);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-player-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-3);
+}
+
+.admin-player-modal-head h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--wood);
+}
+
+.admin-player-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.admin-player-modal-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--wood-3);
+}
+
+.admin-player-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* 1280×720 是验收下限：双栏在窄高度下把列表列压紧，避免横向滚动条 */
+@media (max-height: 760px) {
+  .admin-player {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+
+  .admin-player-scroll {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+}

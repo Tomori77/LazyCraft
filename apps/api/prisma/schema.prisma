@@ -16,6 +16,10 @@ model Account {
   // 权限角色（'player' / 'admin'）：管理接口按它放行。故意不入 JWT——
   // 角色可能变更，每次请求从 DB 读最新值才权威（见 jwt.strategy.ts）。
   role         String   @default("player") @map("role")
+  // 封禁位（task-40）：放在账号而非角色，因为登录/鉴权是账号级状态，
+  // 一封就该挡掉该账号下全部角色，而不是只冻结某一个角色。
+  // 默认 false；读路径在 AuthService.login 与 JwtStrategy.validate 两处拦截。
+  banned       Boolean  @default(false) @map("banned")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   players      Player[]
 

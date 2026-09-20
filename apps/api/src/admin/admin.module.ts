@@ -6,6 +6,8 @@ import { AdminShopController } from './admin-shop.controller.js';
 import { AdminShopService } from './admin-shop.service.js';
 import { AdminAuditController } from './admin-audit.controller.js';
 import { AdminAuditService } from './admin-audit.service.js';
+import { AdminPlayerController } from './admin-player.controller.js';
+import { AdminPlayerService } from './admin-player.service.js';
 
 /**
  * 后台管理模块（task-24b / task-38）
@@ -19,8 +21,8 @@ import { AdminAuditService } from './admin-audit.service.js';
  */
 @Module({
   imports: [AuthModule, PrismaModule, ContentModule],
-  controllers: [AdminShopController, AdminAuditController],
-  providers: [AdminShopService, AdminAuditService],
+  controllers: [AdminShopController, AdminAuditController, AdminPlayerController],
+  providers: [AdminShopService, AdminAuditService, AdminPlayerService],
   exports: [AdminAuditService],
 })
 export class AdminModule {}

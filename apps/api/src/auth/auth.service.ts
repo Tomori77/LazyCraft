@@ -27,9 +27,13 @@ export class AuthService {
       // 故意不区分"邮箱不存在"和"密码错误"，防止枚举攻击探测注册用户
       throw new UnauthorizedException('邮箱或密码错误');
     }
+    // 封禁拦截点一（登录层）：先验密码再报封禁，避免把"被封禁的邮箱"变成枚举信号
     const valid = await this.accounts.validatePassword(account, dto.password);
     if (!valid) {
       throw new UnauthorizedException('邮箱或密码错误');
+    }
+    if (account.banned) {
+      throw new UnauthorizedException('账号已被封禁');
     }
     const payload = { sub: account.id, email: account.email };
     return { accessToken: this.jwtService.sign(payload) };

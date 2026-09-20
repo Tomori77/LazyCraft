@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AdminAuditPage } from './api.ts';
 import { fetchAuditLogs } from './api.ts';
+import { ShopAdminTab } from './shop-admin.tsx';
+import { PlayerAdminTab } from './player-admin.tsx';
 import { useAuth } from '../auth/auth.tsx';
 import { useT } from '../i18n/index.ts';
 import { Icon } from '../icons/icon.tsx';
@@ -70,7 +72,17 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         </nav>
 
         <div className="admin-body">
-          {tab === 'audit' ? <AuditTab /> : <TabPlaceholder tab={tab} />}
+          {/* shop 支由 task-39 提供、players 支由 task-40 提供；content 仍为占位（task-41）。
+              task-40 只在此追加 players 分支，shop 支原样保留。 */}
+          {tab === 'shop' ? (
+            <ShopAdminTab />
+          ) : tab === 'players' ? (
+            <PlayerAdminTab />
+          ) : tab === 'audit' ? (
+            <AuditTab />
+          ) : (
+            <TabPlaceholder tab={tab} />
+          )}
         </div>
       </section>
     </div>

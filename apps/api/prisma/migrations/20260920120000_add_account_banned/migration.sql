@@ -1,0 +1,12 @@
+-- task-40：玩家封禁位
+--
+-- 为什么放 accounts 而不是 players？
+--   封禁是"禁止登录/带 token 访问"的账号级状态，不是游戏内状态：
+--   一个账号下所有角色都应被同一把锁挡住，且拦截点恰好在登录（AuthService）
+--   与每次请求的 token 校验（JwtStrategy）——这两处都只有 accountId，没有 playerId。
+--   放到 players 会迫使我们先查角色才能判封禁，且多角色账号要逐角色判定。
+--
+-- 为什么默认 false（而不是 nullable）？
+--   登录判定要"缺省即未封禁"，布尔 + DEFAULT false 让存量行自动获得正确语义，
+--   避免读路径为 NULL 写额外兜底分支。
+ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "banned" BOOLEAN NOT NULL DEFAULT false;
