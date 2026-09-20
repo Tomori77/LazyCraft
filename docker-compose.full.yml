@@ -56,6 +56,12 @@ services:
     networks:
       - backend
       - frontend
+    volumes:
+      # DLC 目录：运行时可替换的内容包不该打进镜像，放宿主机 ./dlc 便于运维增删。
+      # 当前只读：task-43（外部 DLC 热加载）尚未实施，容器无需写回；
+      # task-43 落地后若需要运行时写入该目录，把 :ro 改为 :rw。
+      # 宿主机目录须先 mkdir -p dlc，否则 Docker 会以 root 创建，后续运维写入会遇权限问题。
+      - ./dlc:/app/dlc:ro
     expose:
       - "3000"
     mem_limit: 1g

@@ -67,14 +67,21 @@ ENV NODE_ENV=production
 
 # 复制 pnpm deploy 打包好的生产依赖与编译产物
 COPY --from=artifacts --chown=node:node /app/deploy ./
+# prisma.config.ts 必须显式进镜像：prod-deps 阶段只复制了 package.json 与 prisma 目录，
+# pnpm deploy 产物里没有它；而容器内 prisma migrate deploy 依赖它提供数据源 URL。
+COPY apps/api/prisma.config.ts ./prisma.config.ts
+# 自动迁移入口脚本随镜像分发：三个 compose 共用同一镜像，逻辑放这里避免三处重复漂移
+COPY apps/api/docker-entrypoint.sh /usr/local/bin/lazycraft-entrypoint.sh
 
 # 以 root 安装 prisma 并生成客户端
 USER root
-RUN npm install -g prisma@7.10.0 && \
+RUN chmod +x /usr/local/bin/lazycraft-entrypoint.sh && \
+    npm install -g prisma@7.10.0 && \
     cd /app && prisma generate
 
 USER node
 EXPOSE 3000
 
-# 启动命令由 compose 覆盖（迁移 + 启动）；此处给默认启动命令
+# 入口脚本先跑迁移再 exec 下面的 CMD，迁移失败即退出，不静默启动
+ENTRYPOINT ["/usr/local/bin/lazycraft-entrypoint.sh"]
 CMD ["node", "dist/main.js"]

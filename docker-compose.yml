@@ -11,9 +11,10 @@ name: lazycraft
 
 networks:
   # 1Panel 为容器创建的默认 bridge 网络名
-  # 若服务器上实际名称不同：docker network ls 查名 → 用 1PANEL_NETWORK=xxx 覆盖
+  # 若服务器上实际名称不同：docker network ls 查名 → 用 PANEL_NETWORK=xxx 覆盖
   onepanel:
-    name: ${1PANEL_NETWORK:-1panel-network}
+    # 变量名不能以数字开头，Compose 会直接拒绝解析 ${1PANEL_...}，故与 .env.example 的 PANEL_NETWORK 对齐
+    name: ${PANEL_NETWORK:-1panel-network}
     external: true
 
 services:
@@ -39,6 +40,12 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-}
     networks:
       - onepanel
+    volumes:
+      # DLC 目录：运行时可替换的内容包不该打进镜像，放宿主机 ./dlc 便于运维增删。
+      # 当前只读：task-43（外部 DLC 热加载）尚未实施，容器无需写回；
+      # task-43 落地后若需要运行时写入该目录，把 :ro 改为 :rw。
+      # 宿主机目录须先 mkdir -p dlc，否则 Docker 会以 root 创建，后续运维写入会遇权限问题。
+      - ./dlc:/app/dlc:ro
     # 不映射宿主机端口：所有流量只允许经 nginx 反代进入，缩小暴露面
     expose:
       - "3000"

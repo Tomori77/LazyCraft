@@ -13,3 +13,5 @@ docs
 *.local
 # 前端产物由宿主机挂载进 nginx 容器，不做进镜像
 apps/web/dist
+# DLC 由宿主机目录挂载进容器，不做进镜像
+dlc

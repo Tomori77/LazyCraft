@@ -12,5 +12,8 @@ apps/api/src/lib/prisma-client/
 # TS 增量编译缓存
 *.tsbuildinfo
 
+# 运行时可变资源：DLC 内容包由运维直接放在服务器目录，不入库（参见 docs/deploy.md）
+dlc/
+
 lazycraft-api.tar
 web-dist.tar.gz
