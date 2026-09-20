@@ -4,9 +4,11 @@ import { useAuth } from '../auth/auth.tsx';
 import { useT } from '../i18n/index.ts';
 import { usePlayer } from '../player/player-context.tsx';
 import { apiGet, apiPost } from '../lib/api.ts';
+import { Icon } from '../icons/icon.tsx';
+import { itemIconName, templateIconName } from '../icons/resolve-icon.ts';
 
 /**
- * 商店悬浮页（购买/出售两种页签）。
+ * 商店悬浮页（购买/出售两种页签，匠人工坊样式）。
  *
  * 数据：`GET /api/shop`（需登录，返回数组，条目含 affordable/unlocked 派生标志）；
  * 买卖：`POST /api/shop/buy|sell`。金币从 `/api/player` 的 abstract_resources 取。
@@ -38,9 +40,9 @@ export function ShopPage({ onClose }: ShopPageProps) {
     try {
       setEntries(await apiGet<ShopListEntry[]>('/shop', token));
     } catch (e) {
-      setError(e instanceof Error ? e.message : '商店加载失败');
+      setError(e instanceof Error ? e.message : t('shop.load_failed'));
     }
-  }, [token]);
+  }, [token, t]);
 
   useEffect(() => {
     void loadShop();
@@ -54,7 +56,7 @@ export function ShopPage({ onClose }: ShopPageProps) {
       await refreshPlayer();
       await loadShop();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '购买失败');
+      setError(e instanceof Error ? e.message : t('shop.buy_failed'));
     }
   };
 
@@ -65,7 +67,7 @@ export function ShopPage({ onClose }: ShopPageProps) {
       await apiPost('/shop/sell', { uid: item.uid, quantity: 1 }, token);
       await refreshPlayer();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '出售失败');
+      setError(e instanceof Error ? e.message : t('shop.sell_failed'));
     }
   };
 
@@ -76,73 +78,81 @@ export function ShopPage({ onClose }: ShopPageProps) {
   }, [player, entries]);
 
   return (
-    <div className="shop-page-container">
-      <div className="shop-header">
-        <div className="shop-header-title">
-          <h2>{t('shop.title')}</h2>
-          <button type="button" className="btn-close-overlay" onClick={onClose} aria-label={t('common.cancel')}>
-            ✕
-          </button>
-        </div>
-        <div className="shop-gold-display">
-          {t(`resource.${GOLD_KEY}.name`)}: {gold.toLocaleString()}
-        </div>
+    <>
+      <div className="ov-head">
+        <h2>
+          {t('shop.title')}
+          <span className="ov-sub">
+            {t(`resource.${GOLD_KEY}.name`)} {gold.toLocaleString()}
+          </span>
+        </h2>
+        <button type="button" className="ov-close" onClick={onClose} aria-label={t('common.cancel')}>
+          <Icon name="ui.close" size={14} />
+        </button>
       </div>
 
-      <div className="shop-tabs">
-        {(['buy', 'sell'] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            className={`shop-tab-btn ${tab === key ? 'is-active' : ''}`}
-            onClick={() => setTab(key)}
-          >
-            {t(`shop.${key}`)}
-          </button>
-        ))}
-      </div>
+      <div className="overlay-body shop">
+        <div className="shop-tabs">
+          {(['buy', 'sell'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={`tab ${tab === key ? 'is-active' : ''}`}
+              onClick={() => setTab(key)}
+            >
+              {t(`shop.${key}`)}
+            </button>
+          ))}
+        </div>
 
-      {error && <p className="shop-error">{error}</p>}
+        {error && <p className="shop-error">{error}</p>}
 
-      <div className="shop-body">
         {tab === 'buy' ? (
-          <div className="shop-goods-grid">
+          <div className="shop-grid">
             {entries.map((entry) => {
               const soldOut = entry.stock === 0;
               const disabled = !entry.affordable || !entry.unlocked || soldOut;
               return (
                 <div key={entry.id} className="shop-card">
-                  <div className="shop-card-name">{entryName(entry, t)}</div>
-                  <div className="shop-card-price">
-                    {t('shop.price')}: {entry.buy_price}
+                  <div className="top">
+                    <Icon name={entryIconName(entry)} size={18} fallback={entryName(entry, t).charAt(0)} />
+                    <span className="nm">{entryName(entry, t)}</span>
                   </div>
-                  <div className="shop-card-stock">
-                    {entry.stock < 0 ? t('shop.unlimited') : `${t('shop.stock')}: ${entry.stock}`}
+                  <div className="pr">
+                    {t('shop.price')} <b>{entry.buy_price}</b>
+                    {' · '}
+                    {entry.stock < 0 ? t('shop.unlimited') : `${t('shop.stock')} ${entry.stock}`}
                   </div>
                   {!entry.unlocked && (
-                    <div className="shop-card-reason">
+                    <div className="pr">
                       {t('shop.requires_level')} {entry.required_level}
                     </div>
                   )}
-                  <button type="button" className="btn-buy" disabled={disabled} onClick={() => buy(entry)}>
-                    {soldOut ? t('shop.sold_out') : t('shop.buy')}
+                  <button type="button" className="btn btn-sm" disabled={disabled} onClick={() => buy(entry)}>
+                    {soldOut ? t('shop.sold_out') : !entry.unlocked ? t('shop.locked') : t('shop.buy')}
                   </button>
                 </div>
               );
             })}
           </div>
         ) : (
-          <div className="shop-sell-grid">
+          <div className="shop-grid">
             {sellable.map((item) => (
               <div key={item.uid} className="shop-card">
-                <div className="shop-card-name">{carriedName(item, t)}</div>
-                <div className="shop-card-stock">
-                  {t('inventory.quantity')}: {item.kind === 'stack' ? item.quantity : 1}
+                <div className="top">
+                  <Icon
+                    name={item.kind === 'equipment' ? templateIconName(item.template_id) : itemIconName(item.item_id)}
+                    size={18}
+                    fallback={carriedName(item, t).charAt(0)}
+                  />
+                  <span className="nm">{carriedName(item, t)}</span>
                 </div>
-                <div className="shop-card-price">
-                  {t('shop.price')}: {sellPriceOf(item, entries) ?? 0}
+                <div className="pr">
+                  {t('inventory.quantity')} {item.kind === 'stack' ? item.quantity : 1}
+                  {' · '}
+                  {t('shop.price')} <b>{sellPriceOf(item, entries) ?? 0}</b>
                 </div>
-                <button type="button" className="btn-sell" onClick={() => sell(item)}>
+                <button type="button" className="btn btn-sm" onClick={() => sell(item)}>
                   {t('shop.sell')}
                 </button>
               </div>
@@ -151,7 +161,7 @@ export function ShopPage({ onClose }: ShopPageProps) {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -159,6 +169,12 @@ export function ShopPage({ onClose }: ShopPageProps) {
 function entryName(entry: ShopEntry, t: (key: string) => string): string {
   const id = entry.kind === 'item' ? entry.item_id : entry.template_id;
   return id ? t(`item.${id}.name`) : entry.id;
+}
+
+/** 商店条目图标：物品按 item 映射，装备按模板→槽位兜底 */
+function entryIconName(entry: ShopEntry): string {
+  if (entry.kind === 'item') return entry.item_id ? itemIconName(entry.item_id) : 'item.ore';
+  return entry.template_id ? templateIconName(entry.template_id) : 'slot.main_hand';
 }
 
 function carriedName(item: CarriedItem, t: (key: string) => string): string {

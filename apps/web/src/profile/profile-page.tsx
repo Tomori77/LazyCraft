@@ -4,19 +4,41 @@ import { useT } from '../i18n/index.ts';
 import { useContent } from '../content/content-context.tsx';
 import { usePlayer } from '../player/player-context.tsx';
 import { canEquipClient } from '../equipment/equip-rules.ts';
+import { Icon } from '../icons/icon.tsx';
+import { resourceIconName } from '../icons/resolve-icon.ts';
 import { EquipmentSlotView } from './equipment-slot.tsx';
 
 /**
- * 个人信息悬浮页：人体图 + 槽位 + 属性汇总。
+ * 个人信息悬浮页（匠人工坊定稿布局）：
+ *   左 = 资源方片网格（占比大）；右上 = 人体图 + 贴部位的 10 槽位；右下 = 属性。
  *
- * 槽位排布：按 anchor 分四组，组内按 order 排序后赋"组内序号"，
- *   用 --slot-order 交给 CSS 算纵向/横向偏移——同一 anchor 组不会重叠。
- * 拖拽：用 shared.canEquip 包装的 canEquipClient 决定高亮/置灰，落点调 /api/inventory/equip。
+ * 为什么槽位按"左右两列 + top 百分比"而不是 anchor 四组？
+ *   定稿的人体图是竖长画布，10 个部位只有左右两列排布才不会互相遮挡；
+ *   anchor 四组是为旧方块布局设计的，会在窄画布上重叠。
+ *   部位→列/高度的映射属展示规则，未收录的槽位按左右交替兜底。
+ *
+ * 无竖向滚动条（P2-4）：整页用 flex/grid 撑满，资源区在极端多资源时才内部滚动
+ *   （滚动条隐藏），人体图按可用高度等比缩放，不靠页面滚动。
  */
 interface ProfilePageProps {
   draggedItem: EquipmentInstance | null;
   onClose: () => void;
 }
+
+/** 定稿槽位排布：左列（头/胸/主手/护腿/靴子）、右列（项链/副手/手套/戒指1/戒指2） */
+const SLOT_LAYOUT: Readonly<Record<string, { col: 'left' | 'right'; top: string }>> = {
+  head: { col: 'left', top: '11%' },
+  chest: { col: 'left', top: '33%' },
+  main_hand: { col: 'left', top: '47%' },
+  legs: { col: 'left', top: '65%' },
+  feet: { col: 'left', top: '89%' },
+  neck: { col: 'right', top: '19%' },
+  necklace: { col: 'right', top: '19%' },
+  off_hand: { col: 'right', top: '40%' },
+  hands: { col: 'right', top: '55%' },
+  ring1: { col: 'right', top: '70%' },
+  ring2: { col: 'right', top: '84%' },
+};
 
 export function ProfilePage({ draggedItem, onClose }: ProfilePageProps) {
   const { t } = useT();
@@ -24,18 +46,14 @@ export function ProfilePage({ draggedItem, onClose }: ProfilePageProps) {
   const { player, equipItem, unequipItem } = usePlayer();
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const slotsMeta = useMemo(() => {
-    const slots = [...(content?.equipmentSlots ?? [])].sort((a, b) => a.order - b.order);
-    // 同一 anchor 的槽位按 order 排列，计算"居中后的相对偏移"（如 3 个槽 → -1/0/1）；
-    // CSS 用该偏移乘步长铺开：top/bottom 组横向排列、left/right 组纵向排列，互不遮挡。
-    const counts: Record<string, number> = {};
-    for (const slot of slots) counts[slot.anchor] = (counts[slot.anchor] ?? 0) + 1;
-    const seen: Record<string, number> = {};
-    return slots.map((slot) => {
-      const index = seen[slot.anchor] ?? 0;
-      seen[slot.anchor] = index + 1;
-      const offset = index - (counts[slot.anchor] - 1) / 2;
-      return { ...slot, offset };
+  const slots = useMemo(() => {
+    const ordered = [...(content?.equipmentSlots ?? [])].sort((a, b) => a.order - b.order);
+    return ordered.map((slotMeta, index) => {
+      const place = SLOT_LAYOUT[slotMeta.id] ?? {
+        col: index % 2 === 0 ? ('left' as const) : ('right' as const),
+        top: `${Math.min(90, 12 + index * 8)}%`,
+      };
+      return { ...slotMeta, ...place };
     });
   }, [content]);
 
@@ -43,6 +61,16 @@ export function ProfilePage({ draggedItem, onClose }: ProfilePageProps) {
     () => sumEquipmentStats(Object.values(player?.equipment ?? {})),
     [player],
   );
+
+  const resources = useMemo(() => {
+    if (!content?.abstractResources) return [];
+    const sorted = [...content.abstractResources].sort((a, b) => a.tier - b.tier);
+    return sorted.map((res) => ({
+      id: res.id,
+      icon: res.icon,
+      value: player?.abstract_resources?.[res.id] ?? 0,
+    }));
+  }, [content, player]);
 
   const playerLevel = player?.level ?? 1;
 
@@ -66,82 +94,112 @@ export function ProfilePage({ draggedItem, onClose }: ProfilePageProps) {
   };
 
   return (
-    <div className="profile-page-container">
-      <div className="profile-header">
-        <div className="profile-header-title">
-          <h2>{t('profile.title')}</h2>
-          <button type="button" className="btn-close-overlay" onClick={onClose} aria-label={t('common.cancel')}>
-            ✕
-          </button>
-        </div>
-        <div className="profile-user-summary">
-          <span className="user-name">{player?.name ?? ''}</span>
-          <span className="user-level">
-            {t('skills.level')} {playerLevel}
-          </span>
-        </div>
-
-        <div className="profile-resources-detail">
-          {Object.entries(player?.abstract_resources ?? {}).map(([resId, value]) => (
-            <span key={resId} className="resource-pill">
-              {t(`resource.${resId}.name`)}: {value.toLocaleString()}
-            </span>
-          ))}
-        </div>
-        {actionError && <p className="profile-error">{actionError}</p>}
+    <>
+      <div className="ov-head">
+        <h2>{t('profile.title')}</h2>
+        <button type="button" className="ov-close" onClick={onClose} aria-label={t('common.cancel')}>
+          <Icon name="ui.close" size={14} />
+        </button>
       </div>
 
-      <div className="profile-body">
-        <div className="body-structure-wrapper">
-          <div className="body-silhouette-canvas">
-            <svg viewBox="0 0 100 200" className="body-svg" aria-hidden="true">
-              <circle cx="50" cy="25" r="15" fill="#374151" />
-              <line x1="50" y1="40" x2="50" y2="120" stroke="#374151" strokeWidth="6" />
-              <line x1="50" y1="60" x2="15" y2="100" stroke="#374151" strokeWidth="5" />
-              <line x1="50" y1="60" x2="85" y2="100" stroke="#374151" strokeWidth="5" />
-              <line x1="50" y1="120" x2="30" y2="185" stroke="#374151" strokeWidth="6" />
-              <line x1="50" y1="120" x2="70" y2="185" stroke="#374151" strokeWidth="6" />
-            </svg>
+      <div className="overlay-body profile">
+        {/* 左：资源明细 */}
+        <div className="profile-left">
+          <div className="profile-user">
+            <div className="avatar" aria-hidden="true">
+              {player?.name?.charAt(0) ?? ''}
+            </div>
+            <div>
+              <div className="nm">{player?.name ?? ''}</div>
+              <div className="lv">
+                {t('skills.level')} {playerLevel}
+              </div>
+            </div>
           </div>
 
-          <div className="body-slots-overlay">
-            {slotsMeta.map((slotMeta) => {
-              const current = player?.equipment?.[slotMeta.id] ?? null;
-              const status = draggedItem ? canEquipClient(draggedItem, slotMeta.id, playerLevel) : null;
-              return (
-                <EquipmentSlotView
-                  key={slotMeta.id}
-                  slotMeta={slotMeta}
-                  offset={slotMeta.offset}
-                  item={current}
-                  draggedItem={draggedItem}
-                  canEquipStatus={status}
-                  onDropItem={handleDrop}
-                  onUnequip={handleUnequip}
-                />
-              );
-            })}
+          <div className="section-label">{t('profile.resources')}</div>
+          <div className="profile-res">
+            {resources.map((res) => (
+              <div key={res.id} className="res-card">
+                <span className="ri" aria-hidden="true">
+                  <Icon
+                    name={resourceIconName(res.icon, res.id)}
+                    size={20}
+                    fallback={t(`resource.${res.id}.name`).charAt(0)}
+                  />
+                </span>
+                <span className="rn">{t(`resource.${res.id}.name`)}</span>
+                <span className="rv">{res.value.toLocaleString()}</span>
+              </div>
+            ))}
           </div>
+          {actionError && <p className="profile-error">{actionError}</p>}
         </div>
 
-        <div className="profile-stats-sidebar">
-          <h3>{t('profile.stats')}</h3>
-          <div className="stats-list">
-            <div className="stat-row">
-              <span className="stat-label">{t('profile.stat.attack')}</span>
-              <span className="stat-val">+{totalStats.attack}</span>
+        {/* 右：上=人体图+装备，下=属性 */}
+        <div className="profile-right">
+          <div className="body-pane">
+            <div className="body-figure">
+              <svg viewBox="0 0 120 260" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <circle cx="60" cy="28" r="17" fill="#d9c9ad" />
+                <rect x="54" y="44" width="12" height="8" fill="#d9c9ad" />
+                <rect x="50" y="50" width="20" height="74" rx="6" fill="#d9c9ad" />
+                <rect x="26" y="56" width="11" height="66" rx="5" fill="#d9c9ad" />
+                <rect x="83" y="56" width="11" height="66" rx="5" fill="#d9c9ad" />
+                <rect x="42" y="124" width="13" height="104" rx="6" fill="#d9c9ad" />
+                <rect x="65" y="124" width="13" height="104" rx="6" fill="#d9c9ad" />
+                <rect x="40" y="228" width="17" height="12" rx="3" fill="#d9c9ad" />
+                <rect x="63" y="228" width="17" height="12" rx="3" fill="#d9c9ad" />
+              </svg>
+
+              {slots.map((slotMeta) => {
+                const current = player?.equipment?.[slotMeta.id] ?? null;
+                const status = draggedItem ? canEquipClient(draggedItem, slotMeta.id, playerLevel) : null;
+                return (
+                  <EquipmentSlotView
+                    key={slotMeta.id}
+                    slotMeta={slotMeta}
+                    col={slotMeta.col}
+                    top={slotMeta.top}
+                    item={current}
+                    draggedItem={draggedItem}
+                    canEquipStatus={status}
+                    onDropItem={handleDrop}
+                    onUnequip={handleUnequip}
+                  />
+                );
+              })}
             </div>
-            <div className="stat-row">
-              <span className="stat-label">{t('profile.stat.defense')}</span>
-              <span className="stat-val">+{totalStats.defense}</span>
+          </div>
+
+          <div className="profile-attrs">
+            <div>
+              <div className="section-label">{t('profile.stats')}</div>
+              <div className="stat-row">
+                <span>{t('profile.stat.attack')}</span>
+                <span className="v">+{totalStats.attack}</span>
+              </div>
+              <div className="stat-row">
+                <span>{t('profile.stat.defense')}</span>
+                <span className="v">+{totalStats.defense}</span>
+              </div>
+              <div className="stat-row">
+                <span>{t('profile.stat.hp')}</span>
+                <span className="v">+{totalStats.hp}</span>
+              </div>
             </div>
-            <div className="stat-row">
-              <span className="stat-label">{t('profile.stat.hp')}</span>
-              <span className="stat-val">+{totalStats.hp}</span>
+            <div>
+              <div className="section-label">{t('profile.affixes')}</div>
+              <div className="affix-line">
+                {Object.values(player?.equipment ?? {})
+                  .filter((eq): eq is EquipmentInstance => eq !== null)
+                  .map((eq) => eq.display_name)
+                  .join(' · ') || t('profile.no_affix')}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -27,11 +27,9 @@ export function CenterOverlay({ isOpen, onClose, children }: CenterOverlayProps)
   if (!isOpen) return null;
 
   return (
-    <div className="center-overlay-root">
-      <div className="center-overlay-backdrop" onClick={onClose} aria-hidden="true" />
-      <div className="center-overlay-content" role="dialog" aria-modal="true">
-        {children}
-      </div>
+    <div className="overlay" role="dialog" aria-modal="true">
+      <div className="overlay-mask" onClick={onClose} aria-hidden="true" />
+      <div className="overlay-card">{children}</div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SUPPORTED_LANGUAGES, useT, type Language } from '../i18n/index.ts';
+import { Icon } from '../icons/icon.tsx';
 import { useSettings } from './settings-context.tsx';
 import type { GraphicsQuality } from './settings.ts';
 
@@ -22,7 +23,8 @@ export function SettingsPanel() {
 
   return (
     <>
-      <button className="settings-trigger" onClick={() => setOpen(true)}>
+      <button type="button" className="fn-btn" onClick={() => setOpen(true)}>
+        <Icon name="ui.settings" size={14} />
         {t('settings.title')}
       </button>
       {open && (

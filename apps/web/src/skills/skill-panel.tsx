@@ -2,10 +2,12 @@ import { useMemo } from 'react';
 import { useT } from '../i18n/index.ts';
 import { useContent } from '../content/content-context.tsx';
 import { usePlayer } from '../player/player-context.tsx';
+import { Icon } from '../icons/icon.tsx';
+import { skillIconName } from '../icons/resolve-icon.ts';
 import type { Skill } from '@lazycraft/shared';
 
 /**
- * 左栏技能导航（改造版）。
+ * 左栏技能导航（匠人工坊版）。
  *
  * 数据驱动：`GET /api/content` 的 skills，按 type 分战斗/非战斗两组，组内按 order 升序；
  * 点击只切换中栏内容，动作列表已移入中栏（work-panel）。
@@ -37,7 +39,7 @@ export function SkillNavPanel({ selectedSkillId, onSelectSkill }: SkillNavPanelP
     if (skills.length === 0) return null;
     return (
       <div className="skill-group">
-        <h3 className="skill-group-title">{t(titleKey)}</h3>
+        <div className="group-title">{t(titleKey)}</div>
         <ul className="skill-list">
           {skills.map((skill) => {
             const isSelected = skill.id === selectedSkillId;
@@ -46,14 +48,14 @@ export function SkillNavPanel({ selectedSkillId, onSelectSkill }: SkillNavPanelP
               <li key={skill.id}>
                 <button
                   type="button"
-                  className={`skill-nav-btn ${isSelected ? 'is-selected' : ''}`}
+                  className={`skill-item ${isSelected ? 'is-selected' : ''}`}
                   onClick={() => onSelectSkill(skill.id)}
                   aria-pressed={isSelected}
                 >
-                  <span className="skill-icon" aria-hidden="true">
-                    {skill.icon || skill.name.charAt(0)}
+                  <span className="skill-ico" aria-hidden="true">
+                    <Icon name={skillIconName(skill.id)} size={18} fallback={skill.name.charAt(0)} />
                   </span>
-                  <span className="skill-nav-info">
+                  <span className="skill-meta">
                     <span className="skill-name">{t(`skill.${skill.id}.name`)}</span>
                     <span className="skill-level">
                       {t('skills.level')} {level}
@@ -69,10 +71,12 @@ export function SkillNavPanel({ selectedSkillId, onSelectSkill }: SkillNavPanelP
   };
 
   return (
-    <nav className="skill-nav-container" aria-label={t('layout.skill_list')}>
-      <h2>{t('nav.skills')}</h2>
+    <>
+      <div className="sidebar-head">
+        <h2>{t('nav.skills')}</h2>
+      </div>
       {renderGroup(combatSkills, 'skill.type.combat')}
       {renderGroup(nonCombatSkills, 'skill.type.non_combat')}
-    </nav>
+    </>
   );
 }

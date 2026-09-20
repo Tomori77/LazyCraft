@@ -1,17 +1,21 @@
-import { useState, type DragEvent } from 'react';
+import { useState, type CSSProperties, type DragEvent } from 'react';
+import { stackQuality, type CarriedItem, type EquipmentInstance } from '@lazycraft/shared';
 import { useT } from '../i18n/index.ts';
 import { toQualityClass } from '../lib/quality.ts';
-import { stackQuality, type CarriedItem, type EquipmentInstance } from '@lazycraft/shared';
+import { Icon } from '../icons/icon.tsx';
+import { itemIconName, slotIconName, templateIconName } from '../icons/resolve-icon.ts';
+
+/** 右栏预览网格固定格数（5 列 × 2 行）；超出部分由"还有 N 件"提示，不产生滚动条 */
+const VISIBLE_SLOTS = 10;
 
 /**
- * 背包与仓库共用的物品网格。
+ * 背包与仓库共用的物品网格（匠人工坊版）。
  *
- * - 装备实例：品质描边、可拖拽（拖到装备槽穿戴，或拖到另一容器移动）；
- * - 堆叠物：显示数量、同样可拖拽移动；
- * - 悬停显示详情。
+ * 每格：图标居中，名字贴格内底边（稀有度颜色），数量在右上角；
+ * 品质加由上到下渐变底色，普通不额外染色只描边。
  *
  * 为什么用原生 HTML5 DnD？
- *   项目未引拖拽库，05 §6 明确"保持不加依赖为默认"；DnD 的 dataTransfer
+ *   项目未引拖拽库，05 §6 明确"保持不加依赖为默认"；dataTransfer
  *   足以在格子与槽位之间传递 uid + 来源容器。
  */
 interface InventoryGridProps {
@@ -25,6 +29,12 @@ interface InventoryGridProps {
   onDropFromOther: (uid: string, from: 'inventory' | 'storage') => void;
 }
 
+/** 装备图标优先按模板映射，未收录再按槽位兜底 */
+function equipmentIconName(item: EquipmentInstance): string {
+  const byTemplate = templateIconName(item.template_id);
+  return byTemplate.startsWith('item.') ? slotIconName(item.slot) : byTemplate;
+}
+
 export function InventoryGrid({
   items,
   capacity,
@@ -36,7 +46,20 @@ export function InventoryGrid({
 }: InventoryGridProps) {
   const { t } = useT();
   const [hovered, setHovered] = useState<CarriedItem | null>(null);
+  // 详情浮层用 fixed 定位并收敛到视口内：右栏窄、格子靠底，就地展开会被裁
+  const [popoverPos, setPopoverPos] = useState<CSSProperties>({});
   const [dropActive, setDropActive] = useState(false);
+
+  const openPopover = (item: CarriedItem, rect: DOMRect) => {
+    setHovered(item);
+    setPopoverPos({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 218)),
+      top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 180)),
+    });
+  };
+
+  const displayName = (item: CarriedItem): string =>
+    item.kind === 'equipment' ? item.display_name : t(`item.${item.item_id}.name`);
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -55,17 +78,19 @@ export function InventoryGrid({
   };
 
   const query = searchQuery.trim().toLowerCase();
-  const filtered = items.filter((item) => {
-    const name = item.kind === 'equipment' ? item.display_name : t(`item.${item.item_id}.name`);
-    return query === '' || name.toLowerCase().includes(query);
-  });
+  const filtered = items.filter((item) => query === '' || displayName(item).toLowerCase().includes(query));
 
-  // 空格子补齐到容量，保持网格形状稳定
-  const slots: (CarriedItem | null)[] = Array.from({ length: capacity }, (_, i) => filtered[i] ?? null);
+  // 右栏是"预览"而非全量容器：固定 10 格（5×2，与原型一致）保证 1280×720 下不出现滚动条；
+  // 容器容量小于 10 时以其为准（不画出不存在的格）。第 11 项起不进预览，
+  // 但容器真实状态与容量不因此改变（used/capacity 仍如实显示）
+  const slotCount = Math.min(VISIBLE_SLOTS, Math.max(capacity, 0));
+  const visible = filtered.slice(0, slotCount);
+  const hiddenCount = filtered.length - visible.length;
+  const slots: (CarriedItem | null)[] = Array.from({ length: slotCount }, (_, i) => visible[i] ?? null);
 
   return (
     <div
-      className={`inventory-grid-wrapper ${dropActive ? 'is-drop-target' : ''}`}
+      className="inventory-grid-wrapper"
       onDragOver={(e) => {
         // dragover 阶段读不到 dataTransfer 内容，只能一律显示落点；
         // 同容器拖放由 handleDrop 的 from !== containerType 判空（无副作用）
@@ -75,38 +100,48 @@ export function InventoryGrid({
       onDragLeave={() => setDropActive(false)}
       onDrop={handleDrop}
     >
-      <div className="inventory-grid">
+      <div className={`mini-grid ${dropActive ? 'is-drop' : ''}`}>
         {slots.map((item, index) => {
           if (!item) {
-            return <div key={`empty-${index}`} className="grid-slot is-empty" />;
+            return <div key={`empty-${index}`} className="slot" />;
           }
           const isEquipment = item.kind === 'equipment';
           const qualityClass = isEquipment ? toQualityClass(item.quality) : toQualityClass(stackQuality(item));
+          const name = displayName(item);
           return (
             <div
               key={item.uid}
-              className={`grid-slot has-item ${qualityClass}`}
+              className={`slot has ${qualityClass}`}
               draggable
+              title={name}
               onDragStart={(e) => {
                 e.dataTransfer.setData('text/plain', JSON.stringify({ uid: item.uid, from: containerType }));
                 e.dataTransfer.effectAllowed = 'move';
                 onDragStartItem(item);
               }}
               onDragEnd={onDragEndItem}
-              onMouseEnter={() => setHovered(item)}
+              onMouseEnter={(e) => openPopover(item, e.currentTarget.getBoundingClientRect())}
               onMouseLeave={() => setHovered(null)}
             >
-              <span className="slot-icon" aria-hidden="true">
-                {isEquipment ? item.display_name.charAt(0) : t(`item.${item.item_id}.name`).charAt(0)}
-              </span>
-              {!isEquipment && <span className="slot-quantity">{item.quantity}</span>}
+              <Icon
+                name={isEquipment ? equipmentIconName(item) : itemIconName(item.item_id)}
+                size={26}
+                fallback={name.charAt(0)}
+              />
+              {!isEquipment && item.quantity > 1 && <span className="qty">{item.quantity}</span>}
+              <span className="it-name">{name}</span>
             </div>
           );
         })}
+        {hiddenCount > 0 && (
+          <div className="slot-more" title={`${t('inventory.used')}: ${filtered.length}`}>
+            +{hiddenCount}
+          </div>
+        )}
       </div>
 
       {hovered && (
-        <div className="item-popover">
+        <div className="item-popover" style={popoverPos}>
           {hovered.kind === 'equipment' ? (
             <EquipmentPopover item={hovered} />
           ) : (
