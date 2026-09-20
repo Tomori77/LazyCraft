@@ -32,7 +32,7 @@ describe('图标注册（Registry icon 桶）', () => {
 
     const icons = registry.list('icon') as IconDef[];
     expect(icons).toHaveLength(HAND_DRAWN_ICONS.length);
-    expect(icons).toHaveLength(31);
+    expect(icons).toHaveLength(32);
   });
 
   it('get(name, icon) 可按名字精确取回', () => {

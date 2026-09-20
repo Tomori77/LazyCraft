@@ -59,3 +59,25 @@ export async function apiPost<T>(path: string, body: unknown, token?: string): P
   await throwIfNotOk(res);
   return res.json() as Promise<T>;
 }
+
+export async function apiPatch<T>(path: string, body: unknown, token?: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  await throwIfNotOk(res);
+  return res.json() as Promise<T>;
+}
+
+export async function apiDelete<T>(path: string, token?: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  await throwIfNotOk(res);
+  return res.json() as Promise<T>;
+}

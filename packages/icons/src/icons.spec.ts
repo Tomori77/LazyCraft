@@ -133,7 +133,7 @@ describe('图标校验 validateIcons', () => {
     ...over,
   });
 
-  it('本体 31 枚手绘 + 多形态示例全部通过', () => {
+  it('本体 32 枚手绘 + 多形态示例全部通过', () => {
     expect(validateIcons(HAND_DRAWN_ICONS)).toEqual({ ok: true, errors: [] });
     expect(validateIcons(FORMAT_DEMO_ICONS)).toEqual({ ok: true, errors: [] });
   });

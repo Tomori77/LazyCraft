@@ -6,8 +6,14 @@ export type GraphicsQuality = 'low' | 'medium' | 'high';
 /**
  * 玩家设置结构（与云端存档 data.settings 字段一一对应）
  *
- * 命名用蛇形（auto_queue）而不是驼峰，与存档契约 task-03 的
+ * 命名用蛇形（volume）而不是驼峰，与存档契约 task-03 的
  * "存档即文档"原则保持一致：写进 JSONB 后不需要命名转换。
+ *
+ * `auto_queue` 的处理（task-36 已定）：**废弃**。
+ *   队列语义是"每项按设定圈数跑完即移除，队列清空后不从头循环"，
+ *   不存在"自动循环"这个可开关的行为，该设置项已无对应功能；
+ *   为避免死开关误导玩家，前端不再展示、也不再写入该字段。
+ *   旧存档/本地缓存里残留的值由 normalizeSettings 忽略，不做读取。
  */
 export interface PlayerSettings {
   /** 主音量 0~100 */
@@ -16,8 +22,6 @@ export interface PlayerSettings {
   language: Language;
   /** 画质档位 */
   quality: GraphicsQuality;
-  /** 动作完成后是否自动排队下一个 */
-  auto_queue: boolean;
 }
 
 /** 默认值与 i18n 的 DEFAULT_LANGUAGE 对齐，保证游客模式与首次登录行为一致 */
@@ -25,7 +29,6 @@ export const DEFAULT_SETTINGS: PlayerSettings = {
   volume: 80,
   language: 'zh-CN',
   quality: 'medium',
-  auto_queue: false,
 };
 
 // 与存档共用同一 localStorage key 风格（task-04 已用 lazycraft:language）
@@ -55,7 +58,6 @@ export function normalizeSettings(raw: unknown): PlayerSettings {
     quality: QUALITIES.includes(source.quality as GraphicsQuality)
       ? (source.quality as GraphicsQuality)
       : DEFAULT_SETTINGS.quality,
-    auto_queue: typeof source.auto_queue === 'boolean' ? source.auto_queue : DEFAULT_SETTINGS.auto_queue,
   };
 }
 

@@ -11,11 +11,17 @@ import {
   mergeSettledStacks,
   nextTickAt,
   settle,
+  settleQueue,
+  aggregateQueueReports,
+  QUEUE_MAX_SLOTS,
+  QUEUE_UNLOCKED_SLOTS,
   StopReason,
+  type ActionQueueItem,
   type CarriedItem,
   type ItemStack,
   type PlayerState,
   type Quality,
+  type QueueItemReport,
   type SettledStack,
   type SkillAction,
   type SettleReport,
@@ -144,6 +150,11 @@ export class ActionService {
   /**
    * 开始活动。
    *
+   * 与队列的互斥（已定方案 b）：
+   *   队列非空时禁止手动开始单动作——否则"手动覆盖 current_action"会与
+   *   队列的自动接续相互打架（谁该跑队首变得不可判定）。要手动玩，先清空队列。
+   *   空闲且队列非空时，settle-due 会自动起跑队首，玩家无需手动开始。
+   *
    * 为什么用"条件 updateMany"而不是 read-check-write？
    *   两个请求同时抢开始时，check 都可能通过、write 互相覆盖；
    *   把"current_action 为 null"写进 WHERE 子句，让数据库行锁串行化，
@@ -158,6 +169,10 @@ export class ActionService {
     if (data.current_action) {
       // 已有活动在进行：服务器权威规则"同一时间只能有一个主动活动"
       throw new ConflictException('已有进行中的活动，请先停止再开始新的');
+    }
+    if (this.readQueue(data).length > 0) {
+      // 队列非空时手动开始被拒（方案 b）；提示玩家先清空队列
+      throw new ConflictException('队列进行中，无法手动开始单个动作；请先清空队列');
     }
     this.assertLevelEnough(data, action);
     this.assertMaterialsEnough(data, action);
@@ -184,6 +199,11 @@ export class ActionService {
   /**
    * 手动停止活动：结算 → 清空 current_action → 返回结算报告。
    *
+   * 队列语义（task-36）：停止 = "停下一切"。若队列非空，按队列顺序把
+   * 截至 now 的圈（含离线欠圈，受 24h 上限）结算掉，然后清空队列与当前动作。
+   * 为什么不保留队列？保留的话 settle-due 的"空闲即起跑"会立刻把它重新拉起，
+   * 玩家点击停止将毫无效果；要保留队列就该用队列面板做"暂停/删除"。
+   *
    * 为什么 stop 也要条件更新？
    *   防止玩家双击 stop：第一次成功结算后 current_action 已清空，
    *   第二次必须 409，否则会基于"已无动作"的状态再返回一份全零报告误导前端。
@@ -191,12 +211,47 @@ export class ActionService {
   async stop(accountId: string) {
     const { data } = await this.saveService.read(accountId);
     const current = data.current_action as ActiveActionData | null;
+    const queue = this.readQueue(data);
+
+    // 空闲但队列存在（刚入队、settle-due 尚未起跑）：停 = 清空队列
     if (!current) {
+      if (queue.length > 0) {
+        const nextData: SaveData = { ...data, action_queue: [] };
+        await this.compareAndSwapCurrentAction(accountId, null, nextData);
+        return { report: emptyReport(), current_action: null, action_queue: [] };
+      }
       throw new ConflictException('当前没有进行中的活动');
     }
-    const action = this.findActionOrThrow(current.action_id);
 
     const now = Date.now();
+
+    // 队列非空：按队列顺序结清截至 now 的圈，然后清空
+    if (queue.length > 0) {
+      const result = settleQueue({
+        player: this.toPlayerState(data),
+        queue,
+        now,
+        resolveAction: (id) => this.resolveActionOrUndefined(id),
+      });
+      const report = aggregateQueueReports(result.reports, result.stop_reason);
+      const inventory = mergeSettledStacks(
+        Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+        result.player.inventory as SettledStack[],
+      );
+      // stop = 停下一切：即使队列尚有剩余，也整条清掉
+      const nextData: SaveData = {
+        ...data,
+        inventory,
+        skills: this.mergeExpIntoSkills(data, result.player.skill_exp),
+        current_action: null,
+        action_queue: [],
+      };
+      await this.compareAndSwapCurrentAction(accountId, current, nextData);
+      await this.notifyGained(accountId, report.gained);
+      return { report, current_action: null, action_queue: [], queue_reports: result.reports };
+    }
+
+    const action = this.findActionOrThrow(current.action_id);
     const { player, report } = settle({
       player: this.toPlayerState(data),
       action,
@@ -219,17 +274,9 @@ export class ActionService {
     };
     await this.compareAndSwapCurrentAction(accountId, current, nextData);
 
-    // 通知结算监听器（任务模块据此累计 craft_item 进度）；
-    // 失败静默——不阻塞 stop 的主路径，监听器自己负责兜错
-    for (const listener of this.settlementListeners) {
-      try {
-        await listener(accountId, report.gained);
-      } catch {
-        // 忽略监听器内部错误
-      }
-    }
+    await this.notifyGained(accountId, report.gained);
 
-    return { report, current_action: null };
+    return { report, current_action: null, action_queue: [] };
   }
 
   /**
@@ -242,13 +289,15 @@ export class ActionService {
   async current(accountId: string) {
     const { data } = await this.saveService.read(accountId);
     const current = data.current_action as ActiveActionData | null;
+    const queue = this.readQueue(data);
     if (!current) {
-      return { current_action: null };
+      return { current_action: null, action_queue: queue };
     }
     const action = this.findActionOrThrow(current.action_id);
     const now = Date.now();
     return {
       current_action: current,
+      action_queue: queue,
       next_tick_at: nextTickAt(current.started_at, action.interval_ms, now),
       interval_ms: action.interval_ms,
     };
@@ -262,6 +311,12 @@ export class ActionService {
    *   - settleDue 结清后把已结算的圈从 started_at 上推进掉（started_at += ticks × interval），
    *     动作 id/skill 不变，下一圈从新边界继续，不会重复结算同一批圈。
    *
+   * 队列语义（task-36）：
+   *   - 队列非空且当前无动作 → 自动开始队首项（"空闲即起跑"）；
+   *   - 队首项完成设定圈数 → 移除并接续下一项，每圈即时产出体验不破坏。
+   *   两种情况都用同一个 CAS 写路径：把"期望的 current_action"写进 WHERE，
+   *   并发争抢只有一个能成功。
+   *
    * 为什么用条件写入而不是普通 update？
    *   两个标签页可能同时到达圈末，都会算出同一批 ticks；把"期望的原 current_action
    *   （含原 started_at）"写进 WHERE，只有一个能成功，另一个 count=0 → 409，
@@ -270,7 +325,32 @@ export class ActionService {
   async settleDue(accountId: string) {
     const { data } = await this.saveService.read(accountId);
     const current = data.current_action as ActiveActionData | null;
+    const queue = this.readQueue(data);
     const now = Date.now();
+
+    // 空闲 + 有队列：自动起跑队首（把 current_action 落成队首项）。
+    // CAS 期望 null：两个并发请求只有一个能起跑，另一个 409 后重拉即可。
+    if (!current && queue.length > 0) {
+      const head = queue[0];
+      const action = this.findActionOrThrow(head.action_id);
+      const nextData: SaveData = {
+        ...data,
+        current_action: {
+          skill_id: action.skill_id,
+          action_id: action.id,
+          started_at: now,
+        },
+      };
+      await this.compareAndSwapCurrentAction(accountId, null, nextData);
+      return {
+        report: emptyReport(),
+        current_action: nextData.current_action,
+        action_queue: queue,
+        queue_reports: [] as QueueItemReport[],
+        next_tick_at: nextTickAt(now, action.interval_ms, now),
+        interval_ms: action.interval_ms,
+      };
+    }
 
     // 没有进行中的活动：返回空报告而不是 409。
     // 为什么？前端"圈末触发结算"与"玩家恰好在此期间 stop"会天然竞争，
@@ -279,6 +359,8 @@ export class ActionService {
       return {
         report: emptyReport(),
         current_action: null,
+        action_queue: queue,
+        queue_reports: [] as QueueItemReport[],
         next_tick_at: null,
         interval_ms: null,
       };
@@ -292,11 +374,62 @@ export class ActionService {
       return {
         report: emptyReport(),
         current_action: current,
+        action_queue: queue,
+        queue_reports: [] as QueueItemReport[],
         next_tick_at: nextTickAt(current.started_at, action.interval_ms, now),
         interval_ms: action.interval_ms,
       };
     }
 
+    // 队列为空：沿用 v4 之前的单动作通路（口径与既有 e2e 完全一致）
+    if (queue.length === 0) {
+      return this.settleDueSingle(accountId, data, current, action, ticks, now);
+    }
+
+    // 有队列：按队列顺序结清（队首必为 current.action_id，否则视为未起跑）
+    const result = settleQueue({
+      player: this.toPlayerState(data),
+      queue,
+      now,
+      resolveAction: (id) => this.resolveActionOrUndefined(id),
+    });
+    const report = aggregateQueueReports(result.reports, result.stop_reason);
+    const inventory = mergeSettledStacks(
+      Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+      result.player.inventory as SettledStack[],
+    );
+    const nextCurrent = this.activeActionDataOf(result.player.current_action, data);
+    const nextData: SaveData = {
+      ...data,
+      inventory,
+      skills: this.mergeExpIntoSkills(data, result.player.skill_exp),
+      current_action: nextCurrent,
+      action_queue: result.queue,
+    };
+    await this.compareAndSwapCurrentAction(accountId, current, nextData);
+
+    await this.notifyGained(accountId, report.gained);
+
+    return {
+      report,
+      current_action: nextCurrent,
+      action_queue: result.queue,
+      queue_reports: result.reports,
+      // next_tick_at 必须按"续跑的当前动作"算 interval，不能沿用已被换掉的队首
+      next_tick_at: this.nextTickFor(nextCurrent, now),
+      interval_ms: this.intervalFor(nextCurrent),
+    };
+  }
+
+  /** 无队列时的单动作逐圈结算（v4 之前的行为原样保留） */
+  private async settleDueSingle(
+    accountId: string,
+    data: SaveData,
+    current: ActiveActionData,
+    action: SkillAction,
+    ticks: number,
+    now: number,
+  ) {
     // 传 now = started_at + ticks * interval：让引擎恰好结算 ticks 圈，
     // 既不会多算（now 已到的不足一圈），也不会漏算
     const settledAt = current.started_at + ticks * action.interval_ms;
@@ -329,18 +462,13 @@ export class ActionService {
     };
     await this.compareAndSwapCurrentAction(accountId, current, nextData);
 
-    // 监听器行为与 stop 一致：把本次真实产出上报（任务模块累计 craft_item）
-    for (const listener of this.settlementListeners) {
-      try {
-        await listener(accountId, report.gained);
-      } catch {
-        // 忽略监听器内部错误
-      }
-    }
+    await this.notifyGained(accountId, report.gained);
 
     return {
       report,
       current_action: nextCurrent,
+      action_queue: [] as ActionQueueItem[],
+      queue_reports: [] as QueueItemReport[],
       next_tick_at: nextCurrent
         ? nextTickAt(nextCurrent.started_at, action.interval_ms, now)
         : null,
@@ -437,5 +565,277 @@ export class ActionService {
       // 并发下另一个请求已经改了 current_action，本次操作基于过期状态，拒绝之
       throw new ConflictException('活动状态已变化，请重新拉取后重试');
     }
+  }
+
+  /** 动作解析器（不抛错的版本）：队列结算遇到已删内容时剔除该行而不是整单失败 */
+  private resolveActionOrUndefined(actionId: string): SkillAction | undefined {
+    return this.contentService.getSnapshot().actions.find((a) => a.id === actionId);
+  }
+
+  /** 从存档读队列；老存档字段缺失按空队列兜底 */
+  private readQueue(data: SaveData): ActionQueueItem[] {
+    const raw = data.action_queue;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter(
+        (item): item is ActionQueueItem =>
+          typeof item?.action_id === 'string' &&
+          typeof item?.skill_id === 'string' &&
+          typeof item?.count === 'number' &&
+          item.count > 0,
+      )
+      .map((item) => ({ action_id: item.action_id, skill_id: item.skill_id, count: item.count }));
+  }
+
+  /** 引擎的 ActiveAction → 存档的 ActiveActionData（补 skill_id 冗余） */
+  private activeActionDataOf(
+    active: { action_id: string; started_at: number } | null,
+    data: SaveData,
+  ): ActiveActionData | null {
+    if (!active) return null;
+    const action = this.resolveActionOrUndefined(active.action_id);
+    const skillId =
+      action?.skill_id ??
+      this.readQueue(data).find((q) => q.action_id === active.action_id)?.skill_id ??
+      '';
+    return { skill_id: skillId, action_id: active.action_id, started_at: active.started_at };
+  }
+
+  /** 当前动作的下一个结算时刻；动作不存在（内容被删）时退回 null */
+  private nextTickFor(current: ActiveActionData | null, now: number): number | null {
+    if (!current) return null;
+    const action = this.resolveActionOrUndefined(current.action_id);
+    return action ? nextTickAt(current.started_at, action.interval_ms, now) : null;
+  }
+
+  /** 当前动作的单次间隔；动作不存在（内容被删）时退回 null */
+  private intervalFor(current: ActiveActionData | null): number | null {
+    if (!current) return null;
+    return this.resolveActionOrUndefined(current.action_id)?.interval_ms ?? null;
+  }
+
+  /** 通知结算监听器；失败静默，不阻塞主写路径 */
+  private async notifyGained(accountId: string, gained: SettleReport['gained']) {
+    for (const listener of this.settlementListeners) {
+      try {
+        await listener(accountId, gained);
+      } catch {
+        // 忽略监听器内部错误
+      }
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 队列 CRUD（task-36）                                              */
+  /* ---------------------------------------------------------------- */
+
+  /** 查询队列 + 槽位信息（只读） */
+  async getQueue(accountId: string) {
+    const { data } = await this.saveService.read(accountId);
+    return this.queuePayload(data, this.readQueue(data));
+  }
+
+  /**
+   * 入队。
+   *
+   * 校验：技能/动作匹配、等级达标、槽位未满。槽位口径为"已占用行数"——
+   * 队列每行只放一个动作（不做堆叠），与"10 槽"的 UI 语义一致。
+   * 与 start 的互斥：队列为空时入队会自动起跑（见 settleDue 空闲分支），
+   * 手动开始则禁止在队列非空时进行（assertQueueNotActive），二者不互相踩踏。
+   */
+  async enqueue(accountId: string, skillId: string, actionId: string, count: number) {
+    const action = this.findActionOrThrow(actionId);
+    this.assertActionBelongsToSkill(action, skillId);
+    if (!Number.isInteger(count) || count < 1) {
+      throw new ForbiddenException('工作次数必须是 ≥1 的整数');
+    }
+
+    const { data } = await this.saveService.read(accountId);
+    this.assertLevelEnough(data, action);
+
+    const queue = this.readQueue(data);
+    if (queue.length >= QUEUE_UNLOCKED_SLOTS) {
+      throw new ForbiddenException(
+        `队列已满：本体仅开放 ${QUEUE_UNLOCKED_SLOTS} / ${QUEUE_MAX_SLOTS} 槽`,
+      );
+    }
+
+    const item: ActionQueueItem = { action_id: action.id, skill_id: action.skill_id, count };
+    const current = data.current_action as ActiveActionData | null;
+
+    // 队列为空但正在手动跑一个动作：入队即接管。
+    // 先把这个手动动作结算掉（不吞已产出的圈），再落队列；否则
+    // settleQueue 会因"current 与队首不符"而无法结算它，直接丢收益。
+    if (current && queue.length === 0) {
+      const running = this.findActionOrThrow(current.action_id);
+      const { player } = settle({
+        player: this.toPlayerState(data),
+        action: running,
+        now: Date.now(),
+      });
+      const inventory = mergeSettledStacks(
+        Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+        player.inventory as SettledStack[],
+      );
+      const nextData: SaveData = {
+        ...data,
+        inventory,
+        skills: this.mergeExpIntoSkills(data, player.skill_exp),
+        current_action: null,
+        action_queue: [item],
+      };
+      await this.compareAndSwapCurrentAction(accountId, current, nextData);
+      return this.queuePayload(nextData, [item]);
+    }
+
+    const nextQueue = [...queue, item];
+    const nextData: SaveData = { ...data, action_queue: nextQueue };
+    await this.compareAndSwapCurrentAction(accountId, current, nextData);
+    return this.queuePayload(nextData, nextQueue);
+  }
+
+  /** 修改某行：改圈数 / 换工作（换工作时重跑技能匹配与等级校验） */
+  async updateQueueItem(
+    accountId: string,
+    index: number,
+    patch: { skillId?: string; actionId?: string; count?: number },
+  ) {
+    const { data } = await this.saveService.read(accountId);
+    const queue = this.readQueue(data);
+    this.assertQueueIndex(queue, index);
+    const currentItem = queue[index];
+
+    let action = this.findActionOrThrow(patch.actionId ?? currentItem.action_id);
+    const skillId = patch.skillId ?? action.skill_id;
+    this.assertActionBelongsToSkill(action, skillId);
+    this.assertLevelEnough(data, action);
+
+    const count = patch.count ?? currentItem.count;
+    if (!Number.isInteger(count) || count < 1) {
+      throw new ForbiddenException('工作次数必须是 ≥1 的整数');
+    }
+
+    const nextQueue = queue.map((item, i) =>
+      i === index
+        ? { action_id: action.id, skill_id: action.skill_id, count }
+        : item,
+    );
+
+    // 不变量：正在跑的动作必须等于队首项。若改的是运行中的队首且换了工作，
+    // 先把旧动作结算掉（不吞已产出的圈）再清空 current_action，让新动作从头起跑；
+    // 否则 settleQueue 会因"current 与队首不符"把它当成未起跑，重置 started_at 丢收益。
+    const current = data.current_action as ActiveActionData | null;
+    const headChanged = index === 0 && current && current.action_id !== action.id;
+    if (headChanged && current) {
+      const running = this.findActionOrThrow(current.action_id);
+      const { player } = settle({ player: this.toPlayerState(data), action: running, now: Date.now() });
+      const inventory = mergeSettledStacks(
+        Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+        player.inventory as SettledStack[],
+      );
+      const nextData: SaveData = {
+        ...data,
+        inventory,
+        skills: this.mergeExpIntoSkills(data, player.skill_exp),
+        current_action: null,
+        action_queue: nextQueue,
+      };
+      await this.compareAndSwapCurrentAction(accountId, current, nextData);
+      return this.queuePayload(nextData, nextQueue);
+    }
+
+    const nextData: SaveData = { ...data, action_queue: nextQueue };
+    await this.compareAndSwapCurrentAction(accountId, current, nextData);
+    return this.queuePayload(nextData, nextQueue);
+  }
+
+  /**
+   * 移除某行。
+   *
+   * 若移除的正是"当前正在跑"的队首，则同时停掉它：
+   * 否则 current_action 会指向一个已不在队列里的动作，语义不自洽。
+   * 这里对队首做结算（不丢已产出的圈）后再切换到新的队首 / 空闲。
+   */
+  async removeQueueItem(accountId: string, index: number) {
+    const { data } = await this.saveService.read(accountId);
+    const queue = this.readQueue(data);
+    this.assertQueueIndex(queue, index);
+
+    const removed = queue[index];
+    const current = data.current_action as ActiveActionData | null;
+    const isRunningHead = index === 0 && current?.action_id === removed.action_id;
+
+    let nextData: SaveData = { ...data, action_queue: queue.filter((_, i) => i !== index) };
+
+    if (isRunningHead && current) {
+      const action = this.findActionOrThrow(current.action_id);
+      const now = Date.now();
+      const { player, report } = settle({
+        player: this.toPlayerState(data),
+        action,
+        now,
+      });
+      const inventory = mergeSettledStacks(
+        Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+        player.inventory as SettledStack[],
+      );
+      const restQueue = queue.filter((_, i) => i !== index);
+      // 队首被移除后：队列还有下一项就立刻起跑，否则回到空闲
+      const nextHead = restQueue[0];
+      const nextCurrent: ActiveActionData | null = nextHead
+        ? { skill_id: nextHead.skill_id, action_id: nextHead.action_id, started_at: now }
+        : null;
+      nextData = {
+        ...data,
+        inventory,
+        skills: this.mergeExpIntoSkills(data, player.skill_exp),
+        current_action: nextCurrent,
+        action_queue: restQueue,
+      };
+      await this.compareAndSwapCurrentAction(accountId, current, nextData);
+      await this.notifyGained(accountId, report.gained);
+    } else {
+      await this.compareAndSwapCurrentAction(accountId, current, nextData);
+    }
+
+    return this.queuePayload(nextData, this.readQueue(nextData));
+  }
+
+  /** 清空队列（测试 / 玩家一次性放弃队列用） */
+  async clearQueue(accountId: string) {
+    const { data } = await this.saveService.read(accountId);
+    const current = data.current_action as ActiveActionData | null;
+    // 清空队列时若正在跑队首，需要把它停掉（结算后空闲），否则 current_action 悬空
+    const nextData: SaveData = { ...data, action_queue: [], current_action: current };
+    if (current) {
+      const action = this.findActionOrThrow(current.action_id);
+      const { player } = settle({ player: this.toPlayerState(data), action, now: Date.now() });
+      nextData.inventory = mergeSettledStacks(
+        Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [],
+        player.inventory as SettledStack[],
+      );
+      nextData.skills = this.mergeExpIntoSkills(data, player.skill_exp);
+      nextData.current_action = null;
+    }
+    await this.compareAndSwapCurrentAction(accountId, current, nextData);
+    return this.queuePayload(nextData, []);
+  }
+
+  private assertQueueIndex(queue: ActionQueueItem[], index: number) {
+    if (!Number.isInteger(index) || index < 0 || index >= queue.length) {
+      throw new NotFoundException(`队列项不存在: index ${index}`);
+    }
+  }
+
+  /** 统一队列响应：队列 + 槽位信息（10 槽 / 3 可用） */
+  private queuePayload(data: SaveData, queue: ActionQueueItem[]) {
+    return {
+      action_queue: queue,
+      queue_slots: {
+        max: QUEUE_MAX_SLOTS,
+        unlocked: QUEUE_UNLOCKED_SLOTS,
+      },
+      current_action: (data.current_action as ActiveActionData | null) ?? null,
+    };
   }
 }

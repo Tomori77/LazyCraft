@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, createContext, createElement,
 import { useAuth } from '../auth/auth.tsx';
 import {
   fetchCurrentAction,
+  fetchQueue,
   settleDueAction,
   stopAction as requestStop,
   startAction as requestStart,
@@ -70,6 +71,8 @@ interface ActionContextValue {
   start: (skillId: string, actionId: string) => Promise<void>;
   /** 点击停止：调用后端结算，成功后 bump settleNonce 供背包刷新 */
   stop: () => Promise<void>;
+  /** 队列面板操作后调用：若空闲则踢一脚让服务器起跑队首 */
+  refreshQueue: () => Promise<void>;
 }
 
 const ActionContext = createContext<ActionContextValue | null>(null);
@@ -118,6 +121,15 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   const settlingRef = useRef(false);
   /** 失败退避截止时间戳：失败后 1s 内不再重试，避免每帧重试演成新的风暴 */
   const retryAfterRef = useRef(0);
+  /**
+   * settleDue 的稳定引用槽。
+   *
+   * 为什么需要它？syncActive 定义在 settleDue 之前，却需要在"空闲 + 队列非空"时
+   * 踢一脚让它自动起跑队首。用 ref 槽打破定义顺序，避免把两个 callback 互相依赖。
+   */
+  const settleDueRef = useRef<((boundary: number) => Promise<void>) | null>(null);
+  /** 上一次看到的队列长度：用于判断队列是否发生变化（完成移除 / 接续下一项） */
+  const queueLengthRef = useRef(0);
 
   /* -------- 内部：仅同步 current_action（不打存档） -------- */
   const syncActive = useCallback(async () => {
@@ -132,6 +144,11 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setActive(null);
       setNextTickAt(null);
       setIntervalMs(null);
+      // 空闲但队列非空：服务器需要被"踢一脚"才会起跑队首（settle-due 空闲分支）。
+      // 登录/对时时自动补这一脚，否则队列只能靠队列面板打开才启动。
+      if ((cur.action_queue?.length ?? 0) > 0) {
+        settleDueRef.current?.(0).catch(() => undefined);
+      }
     }
   }, [token]);
 
@@ -150,6 +167,11 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     try {
       const res = await settleDueAction(token);
       lastSyncAtRef.current = Date.now();
+      // 队列长度变化（完成并移除 / 接续下一项）也要通知订阅者刷新面板，
+      // 否则在"本圈无产出"的时刻面板会短暂显示过期队列
+      const queueLen = res.action_queue?.length ?? 0;
+      const queueChanged = queueLen !== queueLengthRef.current;
+      queueLengthRef.current = queueLen;
       const gainedExp = Object.keys(res.report.exp_gained ?? {}).length > 0;
       const produced = res.report.gained.length > 0 || gainedExp || res.report.lost.length > 0;
 
@@ -182,7 +204,8 @@ export function ActionProvider({ children }: { children: ReactNode }) {
         firedBoundaryRef.current = boundary;
         retryAfterRef.current = 0;
       }
-      if (produced) setSettleNonce((n) => n + 1);
+      // 有产物或队列长度变化都刷新订阅者（背包 / 队列面板）
+      if (produced || queueChanged) setSettleNonce((n) => n + 1);
     } catch {
       // 失败：退避 1s 后允许重试，且不覆盖守卫（下一帧再试），避免卡死或风暴
       retryAfterRef.current = Date.now() + 1000;
@@ -190,6 +213,10 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       settlingRef.current = false;
     }
   }, [token]);
+  // 把稳定引用暴露给 syncActive（定义顺序在前），用于空闲+队列时自动起跑队首
+  useEffect(() => {
+    settleDueRef.current = settleDue;
+  }, [settleDue]);
 
   /* -------- 对外：开始活动 -------- */
   const start = useCallback(async (skillId: string, actionId: string) => {
@@ -231,6 +258,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setNextTickAt(null);
       setIntervalMs(null);
       setStopReason(null);
+      queueLengthRef.current = 0; // stop = 停下一切，队列也被服务端清空
       progressRef.current = 0;
       firedBoundaryRef.current = null;
       retryAfterRef.current = 0;
@@ -244,6 +272,18 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     }
   }, [token]);
 
+  /* -------- 对外：队列面板操作后调用 -------- */
+  const refreshQueue = useCallback(async () => {
+    if (!token) return;
+    const res = await fetchQueue(token);
+    queueLengthRef.current = res.action_queue.length;
+    // 入队后若空闲（尚未起跑），踢一脚 settle-due 让服务器把队首拉起，
+    // 否则进度条不会动，玩家以为队列没生效。
+    if (!res.current_action && res.action_queue.length > 0) {
+      await settleDue(0).catch(() => undefined);
+    }
+  }, [token, settleDue]);
+
   /* -------- 登录/退登：拉取或清空 -------- */
   useEffect(() => {
     if (!token) {
@@ -253,6 +293,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setIntervalMs(null);
       setError(null);
       setStopReason(null);
+      queueLengthRef.current = 0;
       progressRef.current = 0;
       firedBoundaryRef.current = null;
       retryAfterRef.current = 0;
@@ -333,6 +374,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     settleNonce,
     start,
     stop,
+    refreshQueue,
   };
 
   return createElement(ActionContext.Provider, { value }, children);

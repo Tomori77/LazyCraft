@@ -4,7 +4,7 @@
  * 让各 e2e 只需描述"有什么物品"，不必关心实例形状。
  */
 
-import { createEmptySaveData, type SaveDataV3 } from '../src/save/save-shape.js';
+import { createEmptySaveData, type SaveDataV4 } from '../src/save/save-shape.js';
 import type {
   EquipmentInstance,
   EquipmentSlot,
@@ -49,7 +49,10 @@ export function equipment(overrides: Partial<EquipmentInstance> = {}): Equipment
   };
 }
 
-/** v3 空档 + 覆写字段；避免每个 e2e 各写一份 base 结构 */
-export function v3Data(overrides: Partial<SaveDataV3> & Record<string, unknown> = {}): SaveDataV3 {
+/** v4 空档 + 覆写字段；避免每个 e2e 各写一份 base 结构 */
+export function v3Data(overrides: Partial<SaveDataV4> & Record<string, unknown> = {}): SaveDataV4 {
   return { ...createEmptySaveData(), ...overrides };
 }
+
+/** v4 存档的语义别名（新测试用 v4Data 更贴切；保留 v3Data 以兼容既有 e2e） */
+export const v4Data = v3Data;

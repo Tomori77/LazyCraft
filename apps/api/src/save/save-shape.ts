@@ -6,10 +6,10 @@
  *   后续 task-04+ 的技能结算 / 背包系统会基于这里导出的类型消费 data。
  */
 
-import type { CarriedItem, EquipmentInstance } from '@lazycraft/shared';
+import type { ActionQueueItem, CarriedItem, EquipmentInstance } from '@lazycraft/shared';
 
 /** 存档版本号：每次存档结构变更必须 +1，并补齐对应的 migration 脚本 */
-export const CURRENT_SAVE_VERSION = 3;
+export const CURRENT_SAVE_VERSION = 4;
 
 /** 容量默认值：背包与仓库的初始格数（DLC 可扩展） */
 export const DEFAULT_INVENTORY_CAPACITY = 100;
@@ -59,6 +59,13 @@ export interface SaveData {
   current_action: ActiveActionData | null;
   /** 玩家个人设置（音频、UI 偏好等，不影响结算） */
   settings: Record<string, unknown>;
+  /**
+   * 动作队列（v4 起）。
+   *
+   * 基类里声明为可选、v4 里声明为必有：读路径面对老存档时字段可能缺失
+   * （读取侧一律按空队列兜底），而写路径产物必须是 v4 完整形态。
+   */
+  action_queue?: ActionQueueItem[];
 }
 
 /**
@@ -90,8 +97,19 @@ export interface SaveDataV3 extends SaveDataV2 {
   storage_capacity: number;
 }
 
-/** 生成一份"空白存档"——新玩家首次 GET 时服务端懒创建的初始形态（v3） */
-export function createEmptySaveData(): SaveDataV3 {
+/**
+ * 存档 data 字段的 v4 结构：动作队列（task-36，P4-7）。
+ *
+ * 新增 `action_queue`（队列项数组，存剩余圈数）。队列与 current_action 的关系：
+ * current_action 是"队首正在跑的那个"，action_queue 是"还没跑完的清单"。
+ * 队首跑完后从 action_queue 移除，下一位接任 current_action。
+ */
+export interface SaveDataV4 extends SaveDataV3 {
+  /** 动作队列：按顺序执行的待办项，空数组 = 无队列 */
+  action_queue: ActionQueueItem[];
+}
+/** 生成一份"空白存档"——新玩家首次 GET 时服务端懒创建的初始形态（v4） */
+export function createEmptySaveData(): SaveDataV4 {
   return {
     skills: {},
     inventory: [],
@@ -103,5 +121,6 @@ export function createEmptySaveData(): SaveDataV3 {
     storage: [],
     inventory_capacity: DEFAULT_INVENTORY_CAPACITY,
     storage_capacity: DEFAULT_STORAGE_CAPACITY,
+    action_queue: [],
   };
 }

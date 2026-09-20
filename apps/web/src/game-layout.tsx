@@ -16,9 +16,10 @@ import { StoragePanel } from './storage/storage-panel.tsx';
 import { CenterOverlay } from './overlay/center-overlay.tsx';
 import { ProfilePage } from './profile/profile-page.tsx';
 import { ShopPage } from './shop/shop-page.tsx';
+import { QueuePanel } from './queue/queue-panel.tsx';
 import { useAuth } from './auth/auth.tsx';
 
-type ActiveOverlay = 'profile' | 'shop' | null;
+type ActiveOverlay = 'profile' | 'shop' | 'queue' | null;
 
 /**
  * 三栏主界面（匠人工坊版）。
@@ -130,6 +131,7 @@ function GameShell({
                 <ProfilePage draggedItem={draggedEquipment} onClose={() => setOverlay(null)} />
               )}
               {overlay === 'shop' && <ShopPage onClose={() => setOverlay(null)} />}
+              {overlay === 'queue' && <QueuePanel onClose={() => setOverlay(null)} />}
             </CenterOverlay>
           </section>
 
@@ -159,6 +161,10 @@ function GameShell({
                 <button type="button" className="fn-btn" onClick={() => setOverlay('shop')}>
                   <Icon name="ui.shop" size={14} />
                   {t('shop.title')}
+                </button>
+                <button type="button" className="fn-btn" onClick={() => setOverlay('queue')}>
+                  <Icon name="ui.queue" size={14} />
+                  {t('queue.title')}
                 </button>
                 <SettingsPanel />
                 <button type="button" className="fn-btn" onClick={logout}>

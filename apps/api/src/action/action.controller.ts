@@ -1,8 +1,18 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { ActionService } from './action.service.js';
-import { StartActionDto } from './dto/action.dto.js';
+import { EnqueueActionDto, StartActionDto, UpdateQueueItemDto } from './dto/action.dto.js';
 
 /**
  * 活动（挂机动作）HTTP 接口
@@ -38,5 +48,46 @@ export class ActionController {
   @Get('current')
   current(@CurrentUser() user: { id: string }) {
     return this.actionService.current(user.id);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 动作队列（task-36）                                              */
+  /* ---------------------------------------------------------------- */
+
+  /** 查询队列 + 槽位信息（10 槽 / 3 可用） */
+  @Get('queue')
+  getQueue(@CurrentUser() user: { id: string }) {
+    return this.actionService.getQueue(user.id);
+  }
+
+  /** 入队：技能 → 对应工作 + 工作次数（按圈数） */
+  @Post('queue')
+  enqueue(@CurrentUser() user: { id: string }, @Body() dto: EnqueueActionDto) {
+    return this.actionService.enqueue(user.id, dto.skillId, dto.actionId, dto.count);
+  }
+
+  /** 改某行：改次数 / 换工作 */
+  @Patch('queue/:index')
+  updateQueueItem(
+    @CurrentUser() user: { id: string },
+    @Param('index', ParseIntPipe) index: number,
+    @Body() dto: UpdateQueueItemDto,
+  ) {
+    return this.actionService.updateQueueItem(user.id, index, dto);
+  }
+
+  /** 移除某行；若移除的是正在跑的队首则同时切换到下一项 */
+  @Delete('queue/:index')
+  removeQueueItem(
+    @CurrentUser() user: { id: string },
+    @Param('index', ParseIntPipe) index: number,
+  ) {
+    return this.actionService.removeQueueItem(user.id, index);
+  }
+
+  /** 清空队列（并停止正在跑的队首） */
+  @Delete('queue')
+  clearQueue(@CurrentUser() user: { id: string }) {
+    return this.actionService.clearQueue(user.id);
   }
 }

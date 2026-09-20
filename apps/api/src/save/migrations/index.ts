@@ -10,6 +10,7 @@
 import { CURRENT_SAVE_VERSION, type SaveData } from '../save-shape.js';
 import { migrate as migrate1to2 } from './001-to-002.js';
 import { migrate as migrate2to3 } from './002-to-003.js';
+import { migrate as migrate3to4 } from './003-to-004.js';
 
 /** 单个迁移步骤的统一签名 */
 export type SaveMigration = (oldData: SaveData) => SaveData;
@@ -17,11 +18,12 @@ export type SaveMigration = (oldData: SaveData) => SaveData;
 /**
  * 按版本号排序的迁移链条：migrations[i] 负责把 version=i+1 升级为 version=i+2
  *
- * 当前链：[v1 -> v2, v2 -> v3]
+ * 当前链：[v1 -> v2, v2 -> v3, v3 -> v4]
  */
 const MIGRATIONS: ReadonlyArray<SaveMigration> = [
   migrate1to2 as unknown as SaveMigration,
   migrate2to3 as unknown as SaveMigration,
+  migrate3to4 as unknown as SaveMigration,
 ];
 
 /**

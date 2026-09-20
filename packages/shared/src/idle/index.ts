@@ -484,3 +484,31 @@ export function settle(input: SettleInput): SettleResult {
  * 而不是"离线结算"。
  */
 export const stopAction = settle;
+
+/**
+ * 只读判断"此刻该动作是否因材料耗尽 / 背包满而根本执行不了"。
+ *
+ * 为什么单独暴露这个判断？
+ *   动作队列（task-36）需要区分两种"0 圈"：时间没到（应继续保持/续跑）
+ *   与条件不满足（应中止后续）。settle 在两者下都返回 NoTicks，无法区分；
+ *   队列又不能重写结算数学——于是把 settle 内部**已有**的 canConsume/canAdd
+ *   判断原样暴露出来，保证两条路径的判定口径完全一致。
+ *
+ * @returns null 表示可以执行；否则返回阻塞原因（InputExhausted / InventoryFull）
+ */
+export function actionBlockReason(
+  player: PlayerState,
+  action: SkillAction,
+  stackMax?: Record<string, number>,
+): StopReason.InputExhausted | StopReason.InventoryFull | null {
+  const stackMaxOf = (id: string) => stackMax?.[id] ?? DEFAULT_STACK_MAX;
+  const inv: Inv = {
+    stacks: player.inventory.map((s) => ({ ...s })),
+    capacity: player.inventory_capacity,
+  };
+  const hasInputs = Object.values(action.input_items).some((q) => q > 0);
+  if (hasInputs && !canConsume(inv, action.input_items)) return StopReason.InputExhausted;
+  const hasOutputs = Object.values(action.output_items).some((q) => q > 0);
+  if (hasOutputs && !canAdd(inv, action.output_items, stackMaxOf)) return StopReason.InventoryFull;
+  return null;
+}

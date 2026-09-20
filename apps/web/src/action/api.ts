@@ -1,5 +1,5 @@
-import { apiGet, apiPost } from '../lib/api.ts';
-import type { SettleReport } from '@lazycraft/shared';
+import { apiDelete, apiGet, apiPatch, apiPost } from '../lib/api.ts';
+import type { ActionQueueItem, SettleReport } from '@lazycraft/shared';
 
 /**
  * 活动 HTTP 客户端（task-08 后端接口的前端封装）
@@ -29,6 +29,7 @@ export interface StopActionResponse {
 
 export interface CurrentActionResponse {
   current_action: ActiveActionData | null;
+  action_queue?: ActionQueueItem[];
   next_tick_at?: number;
   interval_ms?: number;
 }
@@ -39,12 +40,59 @@ export interface CurrentActionResponse {
  * report 含本次结清的 ticks / gained / consumed / exp_gained / stop_reason；
  * current_action 为 null 表示动作已因材料耗尽/背包满结束；
  * next_tick_at / interval_ms 由后端按新边界一次算好，前端无需再多一次往返。
+ * action_queue / queue_reports 为 task-36 队列维度的附带信息。
  */
 export interface SettleDueResponse {
   report: SettleReport;
   current_action: ActiveActionData | null;
+  action_queue?: ActionQueueItem[];
+  queue_reports?: unknown[];
   next_tick_at: number | null;
   interval_ms: number | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 动作队列（task-36）                                                */
+/* ------------------------------------------------------------------ */
+
+export interface QueueSlots {
+  max: number;
+  unlocked: number;
+}
+
+export interface QueueResponse {
+  action_queue: ActionQueueItem[];
+  queue_slots: QueueSlots;
+  current_action: ActiveActionData | null;
+}
+
+export function fetchQueue(token: string): Promise<QueueResponse> {
+  return apiGet('/action/queue', token);
+}
+
+export function enqueueAction(
+  token: string,
+  skillId: string,
+  actionId: string,
+  count: number,
+): Promise<QueueResponse> {
+  return apiPost('/action/queue', { skillId, actionId, count }, token);
+}
+
+export function updateQueueItem(
+  token: string,
+  index: number,
+  patch: { skillId?: string; actionId?: string; count?: number },
+): Promise<QueueResponse> {
+  return apiPatch(`/action/queue/${index}`, patch, token);
+}
+
+export function removeQueueItem(token: string, index: number): Promise<QueueResponse> {
+  return apiDelete(`/action/queue/${index}`, token);
+}
+
+export function clearActionQueue(token: string): Promise<QueueResponse> {
+  return apiDelete('/action/queue', token);
 }
 
 export function startAction(token: string, skillId: string, actionId: string): Promise<StartActionResponse> {

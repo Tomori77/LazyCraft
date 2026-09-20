@@ -38,7 +38,6 @@ interface SettingsContextValue {
   setVolume: (volume: number) => void;
   setLanguageSetting: (language: Language) => void;
   setQuality: (quality: GraphicsQuality) => void;
-  setAutoQueue: (enabled: boolean) => void;
   /** 登录后正在从云端拉取设置（短暂，期间面板显示正常值，无需 loading 态） */
   syncing: boolean;
 }
@@ -127,11 +126,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const setQuality = useCallback((quality: GraphicsQuality) => applyPatch({ quality }), [applyPatch]);
 
-  const setAutoQueue = useCallback((enabled: boolean) => applyPatch({ auto_queue: enabled }), [applyPatch]);
-
   return createElement(
     SettingsContext.Provider,
-    { value: { settings, setVolume, setLanguageSetting, setQuality, setAutoQueue, syncing } },
+    { value: { settings, setVolume, setLanguageSetting, setQuality, syncing } },
     children,
   );
 }

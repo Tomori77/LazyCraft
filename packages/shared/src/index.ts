@@ -4,6 +4,9 @@ export const GAME_VERSION = '0.1.0';
 // 挂机/离线结算核心：整个项目的灵魂（task-06）
 export * from './idle/index.js';
 
+// 动作队列：逐项编排 + 按圈数截断（task-36），复用 idle/settle 的结算数学
+export * from './queue/index.js';
+
 // 内容数据表（task-07 资源/技能，task-08 动作）：引擎不识别业务，业务全在这里
 export * from './data/resources.js';
 export * from './data/skills.js';

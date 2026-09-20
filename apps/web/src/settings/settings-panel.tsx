@@ -18,7 +18,7 @@ const QUALITY_OPTIONS: GraphicsQuality[] = ['low', 'medium', 'high'];
  */
 export function SettingsPanel() {
   const { t } = useT();
-  const { settings, setVolume, setLanguageSetting, setQuality, setAutoQueue } = useSettings();
+  const { settings, setVolume, setLanguageSetting, setQuality } = useSettings();
   const [open, setOpen] = useState(false);
 
   return (
@@ -86,16 +86,6 @@ export function SettingsPanel() {
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="settings-field settings-field-inline">
-              <label htmlFor="settings-auto-queue">{t('settings.auto_queue')}</label>
-              <input
-                id="settings-auto-queue"
-                type="checkbox"
-                checked={settings.auto_queue}
-                onChange={(e) => setAutoQueue(e.target.checked)}
-              />
             </div>
 
           </section>
