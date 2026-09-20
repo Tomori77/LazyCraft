@@ -5,8 +5,15 @@ import { toQualityClass } from '../lib/quality.ts';
 import { Icon } from '../icons/icon.tsx';
 import { itemIconName, slotIconName, templateIconName } from '../icons/resolve-icon.ts';
 
-/** 右栏预览网格固定格数（5 列 × 2 行）；超出部分由"还有 N 件"提示，不产生滚动条 */
-const VISIBLE_SLOTS = 10;
+/**
+ * 空容器的保底格数：即使没有任何物品也画出这么多格，保证拖放有落点。
+ * 为什么不按 capacity 全量画格（背包 100 / 仓库 500）？
+ *   每次结算刷新（约每秒）都要重渲染，凭空多出 600 个空 div 是纯浪费；
+ *   只画"全部物品 + 一行空格"既让容器可滚动、又不丢任何物品，
+ *   真实容量与已用数由外部 used/capacity 文案如实展示。
+ */
+const MIN_SLOTS = 10;
+const FILLER_SLOTS = 5;
 
 /**
  * 背包与仓库共用的物品网格（匠人工坊版）。
@@ -80,13 +87,16 @@ export function InventoryGrid({
   const query = searchQuery.trim().toLowerCase();
   const filtered = items.filter((item) => query === '' || displayName(item).toLowerCase().includes(query));
 
-  // 右栏是"预览"而非全量容器：固定 10 格（5×2，与原型一致）保证 1280×720 下不出现滚动条；
-  // 容器容量小于 10 时以其为准（不画出不存在的格）。第 11 项起不进预览，
-  // 但容器真实状态与容量不因此改变（used/capacity 仍如实显示）
-  const slotCount = Math.min(VISIBLE_SLOTS, Math.max(capacity, 0));
-  const visible = filtered.slice(0, slotCount);
-  const hiddenCount = filtered.length - visible.length;
-  const slots: (CarriedItem | null)[] = Array.from({ length: slotCount }, (_, i) => visible[i] ?? null);
+  // 全部物品都进 DOM（不再截断、不再有 +N），后面只补一小截空格供拖放；
+  // capacity 用来收口空格数量，但下限永远不截掉真实物品（不丢件优先）
+  const slotCount = Math.max(
+    filtered.length,
+    Math.min(Math.max(filtered.length + FILLER_SLOTS, MIN_SLOTS), Math.max(capacity, 0)),
+  );
+  const slots: (CarriedItem | null)[] = Array.from(
+    { length: slotCount },
+    (_, i) => filtered[i] ?? null,
+  );
 
   return (
     <div
@@ -133,11 +143,6 @@ export function InventoryGrid({
             </div>
           );
         })}
-        {hiddenCount > 0 && (
-          <div className="slot-more" title={`${t('inventory.used')}: ${filtered.length}`}>
-            +{hiddenCount}
-          </div>
-        )}
       </div>
 
       {hovered && (

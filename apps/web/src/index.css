@@ -1361,8 +1361,8 @@ select {
   border-color: var(--brass);
 }
 
-/* 固定 5×2：行高吃满卡片剩余高度，格子按行高取正方形而非按列宽撑高，
-   这样 1280×720 下四段不会因网格过高而溢出（P2-10 无滚动条） */
+/* 网格只在本容器内滚动（P4-1）：卡片有确定高度，wrapper 撑满剩余空间，
+   内容超出时由 .mini-grid 自己出现细滚动条，整页不滚 */
 .inventory-grid-wrapper {
   position: relative;
   flex: 1;
@@ -1374,22 +1374,44 @@ select {
 .mini-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 0 12px 12px;
-  overflow: hidden;
+  /* 行高按内容撑开（格子取正方形），纵向溢出交给滚动条；
+     横向恒定为 5 列，禁止横向滚动 */
+  grid-auto-rows: max-content;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   min-height: 0;
+  /* 匠人工坊风：细滚动条，黄铜滑块 + 羊皮纸轨道 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--brass-2) var(--paper-3);
 }
 
-/* 每格：图标居中，名字贴格内底边，数量在右上角。
-   align-self:start + aspect-ratio：有高度余量时取正方形（原型形态）；
-   高度不够时 max-height 压成扁矩形填满行，而不是撑出滚动条 */
-.slot,
-.slot-more {
+.mini-grid::-webkit-scrollbar {
+  width: 8px;
+}
+
+.mini-grid::-webkit-scrollbar-track {
+  background: var(--paper-3);
+  border-radius: 4px;
+}
+
+.mini-grid::-webkit-scrollbar-thumb {
+  background: var(--brass-2);
+  border-radius: 4px;
+  border: 2px solid var(--paper-3);
+}
+
+.mini-grid::-webkit-scrollbar-thumb:hover {
+  background: var(--brass);
+}
+
+/* 每格：图标居中，名字贴格内底边，数量在右上角；取正方形，按行高排布 */
+.slot {
   width: 100%;
   aspect-ratio: 1 / 1;
-  max-height: 100%;
   align-self: start;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1449,14 +1471,6 @@ select {
 
 .slot[draggable='true'] {
   cursor: grab;
-}
-
-/* 预览固定 10 格，装不下的件数在末格提示，而不是撑出滚动条 */
-.slot-more {
-  border-style: dashed;
-  font-size: 12px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 
 .mini-grid.is-drop {
