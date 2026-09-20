@@ -85,9 +85,11 @@ export function QueuePanel({ onClose }: QueuePanelProps) {
     setBusy(true);
     try {
       await fn();
-      // 操作后立即按权威数据刷新本列表；refreshQueue 额外负责"空闲时踢一脚起跑队首"
-      await load();
-      await refreshQueue();
+      // 操作后按权威数据刷新：refreshQueue 内部已 GET 队列（并在空闲时踢一脚起跑队首），
+      // 直接消费它的返回值，避免再单独 load() 一次造成同一份数据两次往返。
+      const res = await refreshQueue();
+      setItems(res.action_queue);
+      setSlots(res.queue_slots);
     } catch (e) {
       setError(e instanceof Error ? e.message : t('queue.op_failed'));
     } finally {

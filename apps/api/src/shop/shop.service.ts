@@ -27,7 +27,7 @@ import {
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
 import { readGold, writeGold } from '../save/gold.js';
-import { mustGetPlayer, mustLockSave } from '../save/save-tx.js';
+import { lockSaveForAccount } from '../save/save-tx.js';
 import {
   DEFAULT_INVENTORY_CAPACITY,
   type SaveDataV3,
@@ -105,7 +105,7 @@ function toRecyclableEntry(row: ShopEntryRow): RecyclableEntry {
  * 条目已全部入库（`shop_entries`），库存为**全服共享**、买入真实扣减。
  *
  * 并发模型：
- *   buy 在 Prisma.$transaction 内先锁玩家存档（save-tx 的 mustLockSave），
+ *   buy 在 Prisma.$transaction 内先锁玩家存档（save-tx 的 lockSaveForAccount），
  *   再用"带条件的 updateMany"原子扣库存——`WHERE stock >= quantity`
  *   让 Postgres 对该行加锁并在锁释放后重新求值条件，两个买家抢最后一件时
  *   只有一个 count=1，另一个 count=0 转 403。这比"先 SELECT 再 UPDATE"
@@ -181,8 +181,7 @@ export class ShopService {
   async buy(accountId: string, entryId: string, quantity: number) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
-      const player = await mustGetPlayer(tx, accountId);
-      const save = await mustLockSave(tx, player.id);
+      const save = await lockSaveForAccount(tx, accountId);
       const data = save.data as unknown as SaveDataV3;
 
       const row = await tx.shopEntryRow.findUnique({ where: { id: entryId } });
@@ -249,8 +248,7 @@ export class ShopService {
   async sell(accountId: string, entryId: string, quantity: number) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
-      const player = await mustGetPlayer(tx, accountId);
-      const save = await mustLockSave(tx, player.id);
+      const save = await lockSaveForAccount(tx, accountId);
       const data = save.data as unknown as SaveDataV3;
 
       const row = await tx.shopEntryRow.findUnique({ where: { id: entryId } });

@@ -17,10 +17,10 @@ export class PlayerService {
   ) {}
 
   async getPlayer(accountId: string): Promise<PlayerData> {
-    // 先确保 player 存在再读存档：read() 内部也会 ensurePlayer，
-    // 但 name 需要从 player 行取，这里显式拿一次避免 service 再查一遍 player 表
-    const player = await this.saveService.ensurePlayer(accountId);
-    const { data } = await this.saveService.read(accountId);
-    return buildPlayerData(player.name, this.contentService.getSnapshot(), data);
+    // player.name 与存档由 readWithPlayer 一条 LEFT JOIN 取回：
+    // 原先 ensurePlayer + read 是两条串行查询（远程 DB 下 ≈160ms），
+    // 而玩家名本就和 data 同行；懒创建/迁移语义仍由 read() 兜底。
+    const { name, data } = await this.saveService.readWithPlayer(accountId);
+    return buildPlayerData(name, this.contentService.getSnapshot(), data);
   }
 }

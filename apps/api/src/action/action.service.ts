@@ -193,6 +193,10 @@ export class ActionService {
       current_action: nextData.current_action,
       // 刚开始 = 0 圈已完成，nextTickAt 即 started_at + interval（走 shared 同一口径）
       next_tick_at: nextTickAt(started_at, action.interval_ms, started_at),
+      // 随响应一并下发 interval_ms：前端启动进度条动画需要它，
+      // 否则要在 start 之后再发一次 GET /current 补这个字段（远程 DB 下多一次 ~230ms 往返）。
+      // 只增字段、不改任何语义，服务器权威口径不变。
+      interval_ms: action.interval_ms,
     };
   }
 
@@ -544,10 +548,11 @@ export class ActionService {
     expected: ActiveActionData | null,
     nextData: SaveData,
   ) {
-    // 不经过 read()：这里只需要 player.id 当锁定位点，读 data 反而多一次 IO
-    const player = await this.saveService.ensurePlayer(accountId);
+    // 用 relation 过滤直接按 accountId 定位存档，省掉"先 ensurePlayer 拿 player.id"的
+    // 一次串行往返（远程 DB 下 ~80ms）。调用方在此之前都已走过 read()，
+    // player 必然存在，因此不必在此懒创建；不存在时 count=0 同样落到 409。
     const where: Prisma.SaveWhereInput = {
-      playerId: player.id,
+      player: { accountId },
       ...(expected === null
         ? { data: { path: ['current_action'], equals: Prisma.JsonNull } }
         : {

@@ -8,9 +8,9 @@ import { ActionService } from './action.service.js';
 /**
  * 活动模块（task-08）
  *
- * 必须 import SaveModule：start/stop/current 都读存档；且 ActionService
- * 直接复用 SaveService.ensurePlayer 定位 player 行，避免"默认角色"
- * 的逻辑散落到多处。
+ * 必须 import SaveModule：start/stop/current 都读存档；条件更新用 relation
+ * 过滤按 accountId 直接定位存档（save.updateMany where player.accountId），
+ * "默认角色"的定位逻辑收敛在 SaveModule，不散落到多处。
  * 必须 import AuthModule：JwtAuthGuard 是 AuthGuard('jwt') 的别名，
  * 运行时需要 PassportModule 提供的 AuthModuleOptions。
  */

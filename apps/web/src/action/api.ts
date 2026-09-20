@@ -20,6 +20,8 @@ export interface ActiveActionData {
 export interface StartActionResponse {
   current_action: ActiveActionData;
   next_tick_at: number;
+  /** 单次间隔；后端随 start 响应一并下发，免去前端再拉一次 /current */
+  interval_ms?: number;
 }
 
 export interface StopActionResponse {

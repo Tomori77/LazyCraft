@@ -73,15 +73,19 @@ export function ShopPage({ onClose }: ShopPageProps) {
   const submit = async (quantity: number) => {
     if (!token || !pending) return;
     setError(null);
+    const mode = pending.mode;
     try {
-      const path = pending.mode === 'buy' ? '/shop/buy' : '/shop/sell';
-      await apiPost(path, { entry_id: entryIdOf(pending.entry), quantity }, token);
-      await refreshPlayer();
-      await loadShop();
-      setPending(null);
+      await apiPost(mode === 'buy' ? '/shop/buy' : '/shop/sell', { entry_id: entryIdOf(pending.entry), quantity }, token);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t(`shop.${pending.mode === 'buy' ? 'buy' : 'sell'}_failed`));
+      // 失败：保留弹窗与数量，让玩家改了重试（原行为不变）
+      setError(e instanceof Error ? e.message : t(`shop.${mode === 'buy' ? 'buy' : 'sell'}_failed`));
+      return;
     }
+    // 成功即关弹窗（即时反馈），再后台拉权威金币/清单；
+    // 原先要等 refreshPlayer + loadShop 两次往返（~250ms）才关，纯属感知延迟。
+    setPending(null);
+    await refreshPlayer();
+    await loadShop();
   };
 
   return (

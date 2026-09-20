@@ -121,7 +121,7 @@ export function WorkPanel({ selectedSkillId }: WorkPanelProps) {
             action={action}
             skillLevel={currentLevel}
             isActive={active?.action_id === action.id}
-            onStart={() => void run(() => start(action.skill_id, action.id))}
+            onStart={() => void run(() => start(action.skill_id, action.id, action.interval_ms))}
             onStop={() => void run(stop)}
             pending={pending}
             progressRef={progressRef}

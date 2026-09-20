@@ -18,7 +18,7 @@ import {
   type StackItemInstance,
 } from '@lazycraft/shared';
 import { SaveService } from '../save/save.service.js';
-import { mustGetPlayer, mustLockSave } from '../save/save-tx.js';
+import { lockSaveForAccount } from '../save/save-tx.js';
 import {
   DEFAULT_INVENTORY_CAPACITY,
   DEFAULT_STORAGE_CAPACITY,
@@ -134,8 +134,7 @@ export class InventoryService {
   async move(accountId: string, uid: string, from: ContainerName, to: ContainerName) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
-      const player = await mustGetPlayer(tx, accountId);
-      const save = await mustLockSave(tx, player.id);
+      const save = await lockSaveForAccount(tx, accountId);
       const data = save.data as unknown as SaveDataV3;
 
       const src = containerOf(data, from);
@@ -167,8 +166,7 @@ export class InventoryService {
   async equip(accountId: string, uid: string, slot: string) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
-      const player = await mustGetPlayer(tx, accountId);
-      const save = await mustLockSave(tx, player.id);
+      const save = await lockSaveForAccount(tx, accountId);
       const data = save.data as unknown as SaveDataV3;
 
       const found = findCarried(data, uid);
@@ -214,8 +212,7 @@ export class InventoryService {
   async unequip(accountId: string, slot: string) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
-      const player = await mustGetPlayer(tx, accountId);
-      const save = await mustLockSave(tx, player.id);
+      const save = await lockSaveForAccount(tx, accountId);
       const data = save.data as unknown as SaveDataV3;
 
       const equipment = { ...((data.equipment ?? {}) as Record<string, EquipmentInstance | null>) };
@@ -246,8 +243,7 @@ export class InventoryService {
   async discard(accountId: string, uid: string, quantity?: number) {
     const prisma = this.saveService.prisma;
     return prisma.$transaction(async (tx) => {
-      const player = await mustGetPlayer(tx, accountId);
-      const save = await mustLockSave(tx, player.id);
+      const save = await lockSaveForAccount(tx, accountId);
       const data = save.data as unknown as SaveDataV3;
 
       const found = findCarried(data, uid);

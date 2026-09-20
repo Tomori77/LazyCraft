@@ -7,7 +7,7 @@ import {
   stopAction as requestStop,
   startAction as requestStart,
 } from './api.ts';
-import type { ActiveActionData } from './api.ts';
+import type { ActiveActionData, QueueResponse } from './api.ts';
 import type { StopReason } from '@lazycraft/shared';
 
 /**
@@ -67,12 +67,15 @@ interface ActionContextValue {
    *   无需关心订阅/取消订阅的生命周期。
    */
   settleNonce: number;
-  /** 点击开始：立即写入 active 并用响应的 next_tick_at 启动动画 */
-  start: (skillId: string, actionId: string) => Promise<void>;
+  /** 点击开始：立即写入 active 并用响应的 next_tick_at 启动动画（intervalMsHint 供乐观 UI 用） */
+  start: (skillId: string, actionId: string, intervalMsHint?: number) => Promise<void>;
   /** 点击停止：调用后端结算，成功后 bump settleNonce 供背包刷新 */
   stop: () => Promise<void>;
-  /** 队列面板操作后调用：若空闲则踢一脚让服务器起跑队首 */
-  refreshQueue: () => Promise<void>;
+  /**
+   * 队列面板操作后调用：拉最新队列，若空闲则踢一脚让服务器起跑队首。
+   * 返回权威队列响应，调用方直接用它渲染，避免自己再 GET 一次队列。
+   */
+  refreshQueue: () => Promise<QueueResponse>;
 }
 
 const ActionContext = createContext<ActionContextValue | null>(null);
@@ -219,25 +222,46 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   }, [settleDue]);
 
   /* -------- 对外：开始活动 -------- */
-  const start = useCallback(async (skillId: string, actionId: string) => {
+  const start = useCallback(async (skillId: string, actionId: string, intervalMsHint?: number) => {
     if (!token) return;
     setPending(true);
     setError(null);
     setStopReason(null);
+    /**
+     * 乐观置"进行中"：点击后先按本地时间立即可见，避免等服务器往返（远程 DB 下 ~500ms）。
+     *
+     * 为什么是"乐观 UI"而不是乐观结算？
+     *   服务器权威不变：这里只改前端演出状态，不产出任何物品/经验；
+     *   服务器返回的 current_action / next_tick_at 会立刻覆盖本地演出值。
+     *   若服务端拒绝（等级/材料不足等），catch 里回滚为 idle 并展示错误。
+     * intervalMs 由调用方（已知内容快照）传入，避免 ActionProvider 反向依赖 Content。
+     */
+    if (typeof intervalMsHint === 'number') {
+      const optimisticStartedAt = Date.now();
+      setActive({ skill_id: skillId, action_id: actionId, started_at: optimisticStartedAt });
+      setNextTickAt(optimisticStartedAt + intervalMsHint);
+      setIntervalMs(intervalMsHint);
+      progressRef.current = 0;
+      firedBoundaryRef.current = null;
+      retryAfterRef.current = 0;
+    }
     try {
       const res = await requestStart(token, skillId, actionId);
-      // 服务器已写入 current_action；前端立刻进入"进行中"状态，
-      // 用响应的 next_tick_at 启动本地进度条演出
+      // 服务器已写入 current_action；用权威 started_at/next_tick_at 覆盖乐观值
       setActive(res.current_action);
       setNextTickAt(res.next_tick_at);
-      // interval_ms 从 start 响应推不出来（后端契约已定），立即拉一次 current 补齐
-      const cur = await fetchCurrentAction(token);
-      setIntervalMs(cur.interval_ms ?? null);
+      // interval_ms 现在随 start 响应下发；老后端缺该字段时退回调用方给的内容快照值
+      setIntervalMs(res.interval_ms ?? intervalMsHint ?? null);
       progressRef.current = 0;
       firedBoundaryRef.current = null;
       retryAfterRef.current = 0;
       lastSyncAtRef.current = Date.now();
     } catch (e) {
+      // 服务端拒绝：回滚乐观状态，否则界面会停在"假装进行中"
+      setActive(null);
+      setNextTickAt(null);
+      setIntervalMs(null);
+      progressRef.current = 0;
       setError(e instanceof Error ? e.message : '操作失败');
       throw e;
     } finally {
@@ -250,31 +274,39 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     if (!token) return;
     setPending(true);
     setError(null);
+    // 乐观退出"进行中"：点击即停，进度条/按钮立刻消失；结算仍在服务器完成，
+    // settleNonce 在 requestStop 成功后（产物已落库）才 bump，避免提前刷新读到旧背包。
+    const wasActive = active;
+    setActive(null);
+    setNextTickAt(null);
+    setIntervalMs(null);
+    progressRef.current = 0;
     try {
       await requestStop(token);
       // 结算已落库：清空进行中状态；自增信号让 PlayerProvider 重拉 /api/player
       // （背包/经验都在后端结算里变化，前端不自行推算）
-      setActive(null);
-      setNextTickAt(null);
-      setIntervalMs(null);
       setStopReason(null);
       queueLengthRef.current = 0; // stop = 停下一切，队列也被服务端清空
-      progressRef.current = 0;
       firedBoundaryRef.current = null;
       retryAfterRef.current = 0;
       setSettleNonce((n) => n + 1);
       lastSyncAtRef.current = Date.now();
     } catch (e) {
+      // 服务端拒绝：把乐观清掉的活动恢复回来，避免界面与服务器状态不一致
+      if (wasActive) {
+        setActive(wasActive);
+        void syncActive().catch(() => undefined);
+      }
       setError(e instanceof Error ? e.message : '操作失败');
       throw e;
     } finally {
       setPending(false);
     }
-  }, [token]);
+  }, [token, active, syncActive]);
 
   /* -------- 对外：队列面板操作后调用 -------- */
-  const refreshQueue = useCallback(async () => {
-    if (!token) return;
+  const refreshQueue = useCallback(async (): Promise<QueueResponse> => {
+    if (!token) return { action_queue: [], queue_slots: { max: 0, unlocked: 0 }, current_action: null };
     const res = await fetchQueue(token);
     queueLengthRef.current = res.action_queue.length;
     // 入队后若空闲（尚未起跑），踢一脚 settle-due 让服务器把队首拉起，
@@ -282,6 +314,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     if (!res.current_action && res.action_queue.length > 0) {
       await settleDue(0).catch(() => undefined);
     }
+    return res;
   }, [token, settleDue]);
 
   /* -------- 登录/退登：拉取或清空 -------- */

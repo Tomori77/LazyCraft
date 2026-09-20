@@ -13,6 +13,31 @@ interface ValidatedUser extends JwtPayload {
   role: string;
 }
 
+/** 账号有效性缓存条目 */
+interface AccountCacheEntry {
+  role: string;
+  /** 过期时刻（毫秒）；到点后必须回库复核，避免账号被删/降权后 token 仍有效 */
+  expiresAt: number;
+}
+
+/**
+ * token 校验缓存时长（毫秒）。
+ *
+ * 为什么需要缓存？
+ *   远程数据库单次往返约 80ms，而每个受保护请求都要在这里查一次账号；
+ *   不缓存时"点一个按钮"的延迟里有近 80ms 纯属重复校验同一张不变的表。
+ * 为什么是 5 秒而不是永久？
+ *   服务器权威要求"账号被删/被降为普通用户"能及时生效。5s 是
+ *   "每请求一次往返"与"撤销生效延迟"之间的折中：撤销最多晚 5s，
+ *   而正常游玩期间的连续操作不再为同一账号反复回库。
+ *   注意缓存的是"账号是否存在 + 当前 role"，不是 token 本身；
+ *   每次请求仍逐字节校验 JWT 签名与过期时间。
+ */
+const ACCOUNT_CACHE_TTL_MS = 5_000;
+
+/** 进程内账号校验缓存：key = 账号 id；单实例部署，无需跨进程失效机制 */
+const accountCache = new Map<string, AccountCacheEntry>();
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private readonly prisma: PrismaClient) {
@@ -24,12 +49,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   // 解码后的 payload 必须能在数据库里找到对应账号，否则 token 视为无效
   async validate(payload: JwtPayload): Promise<ValidatedUser> {
-    const account = await this.prisma.account.findUnique({ where: { id: payload.sub } });
+    const now = Date.now();
+    const cached = accountCache.get(payload.sub);
+    if (cached && cached.expiresAt > now) {
+      // role 故意不写进 JWT payload：角色可能被后台变更/撤销，
+      // 因此缓存只保留极短 TTL（见上），到点后回库读最新值
+      return { id: payload.sub, ...payload, role: cached.role };
+    }
+
+    const account = await this.prisma.account.findUnique({
+      where: { id: payload.sub },
+      select: { role: true },
+    });
     if (!account) {
+      // 账号已不存在：顺手清掉可能残留的缓存
+      accountCache.delete(payload.sub);
       throw new UnauthorizedException();
     }
-    // role 故意不写进 JWT payload：角色可能被后台变更/撤销，token 里的旧值会一直有效到过期；
-    // 每次请求从 DB 读最新 role，AdminGuard 的判定才是权威的。
+    accountCache.set(payload.sub, { role: account.role, expiresAt: now + ACCOUNT_CACHE_TTL_MS });
     return { id: payload.sub, ...payload, role: account.role };
   }
 }

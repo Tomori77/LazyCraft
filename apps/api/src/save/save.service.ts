@@ -13,6 +13,25 @@ function randomSuffix(): string {
 }
 
 /**
+ * `read()` 用的"player + save"合并行。
+ *
+ * 为什么用原生 SQL 而不是 Prisma 的 `include`？
+ *   `include` 对每个关联发一条独立查询（实测 `player.findFirst+include` ≈ 2×RTT）；
+ *   而本项目的 PG 在远程主机，单次往返约 80ms，读路径每多一条查询就多 80ms。
+ *   `LEFT JOIN` 一条查询同时取回玩家名、存档版本与 data，读路径因此少一次往返。
+ * 为什么 LEFT JOIN 而不是 INNER JOIN？
+ *   正常注册路径已有 player，但"player 存在、save 不存在"的懒创建分支必须能识别出来
+ *   （此时 s.version 为 null），否则会静默走到"无存档"逻辑而漏建。
+ */
+interface PlayerSaveRow {
+  player_id: string;
+  player_name: string;
+  version: number | null;
+  data: unknown;
+  updated_at: Date | null;
+}
+
+/**
  * 存档读写服务
  *
  * 服务器权威的关键点：
@@ -67,47 +86,97 @@ export class SaveService {
   /**
    * 读取当前账号的存档；若存档不存在则按 v1 空结构懒创建一份。
    * 若 DB 里存档版本落后，迁移成功后立即回写。
+   *
+   * 性能：正常路径（player 与 save 都在）只发一条 LEFT JOIN 查询返回
+   * { player, version, data, updatedAt }；懒创建与迁移回写才走额外写查询。
    */
   async read(accountId: string) {
-    const player = await this.ensurePlayer(accountId);
-    let save = await this.prisma.save.findUnique({ where: { playerId: player.id } });
+    const row = await this.selectPlayerSave(accountId);
 
-    if (!save) {
-      save = await this.prisma.save.create({
+    // 旧账号无角色时才走懒创建（正常注册路径 P3-7 已建好 player）
+    const playerId = row?.player_id ?? (await this.ensurePlayer(accountId)).id;
+
+    if (!row || row.version === null) {
+      const created = await this.prisma.save.create({
         data: {
-          playerId: player.id,
+          playerId,
           version: CURRENT_SAVE_VERSION,
           data: createEmptySaveData() as unknown as Prisma.InputJsonValue,
         },
       });
+      return { version: CURRENT_SAVE_VERSION, data: created.data as unknown as SaveData, updatedAt: created.updatedAt };
     }
 
-    if (save.version > CURRENT_SAVE_VERSION) {
+    if (row.version > CURRENT_SAVE_VERSION) {
       // 出现版本超前意味着数据库被人为/异常写入，必须当成服务器错误而不是悄悄返回，
       // 让上游 5xx 监控能捕获到这种数据一致性问题
       throw new InternalServerErrorException(
-        `存档版本 v${save.version} 超过服务端支持的 v${CURRENT_SAVE_VERSION}`,
+        `存档版本 v${row.version} 超过服务端支持的 v${CURRENT_SAVE_VERSION}`,
       );
     }
 
-    let data = save.data as unknown as SaveData;
-    if (save.version < CURRENT_SAVE_VERSION) {
-      const migrated = migrateSave(save.version, data);
-      save = await this.prisma.save.update({
-        where: { id: save.id },
+    let data = row.data as unknown as SaveData;
+    let updatedAt = row.updated_at;
+    if (row.version < CURRENT_SAVE_VERSION) {
+      const migrated = migrateSave(row.version, data);
+      const saved = await this.prisma.save.update({
+        where: { playerId },
         data: {
           version: CURRENT_SAVE_VERSION,
           data: migrated as unknown as Prisma.InputJsonValue,
         },
       });
       data = migrated;
+      updatedAt = saved.updatedAt;
     }
 
-    return {
-      version: CURRENT_SAVE_VERSION,
-      data,
-      updatedAt: save.updatedAt,
-    };
+    return { version: CURRENT_SAVE_VERSION, data, updatedAt };
+  }
+
+  /**
+   * 一条 LEFT JOIN 取回"账号最早角色 + 其存档"的原始行。
+   *
+   * 为什么用原生 SQL 而不是 Prisma 的 include？
+   *   include 对关联另发一条查询（实测 2×RTT）；本项目 PG 在远程主机，
+   *   单次往返约 80ms，读路径每多一条就多 80ms。LEFT JOIN 一次取全。
+   * 为什么保留 LEFT JOIN（不 INNER JOIN）？
+   *   必须能识别"有角色但无存档"（s.version 为 null）以触发懒创建。
+   */
+  private async selectPlayerSave(accountId: string): Promise<PlayerSaveRow | undefined> {
+    const rows = await this.prisma.$queryRaw<PlayerSaveRow[]>`
+      SELECT p.id AS player_id, p.name AS player_name,
+             s.version AS version, s.data AS data, s.updated_at AS updated_at
+      FROM players p
+      LEFT JOIN saves s ON s.player_id = p.id
+      WHERE p.account_id = ${accountId}
+      ORDER BY p.created_at ASC
+      LIMIT 1`;
+    return rows[0];
+  }
+
+  /**
+   * 读取存档 + 玩家名（个人信息聚合专用）。
+   *
+   * 为什么要单独开一个方法而不是 `ensurePlayer` + `read`？
+   *   `/api/player` 需要 player.name，普通 `read()` 只返回 data；
+   *   在远程 DB 下，分别查 player 与 save 是两条串行往返（≈160ms），
+   *   而 player 行本就随 data 同一次 LEFT JOIN 取回。
+   *   复用 read() 的懒创建/迁移语义，避免绕过它读到旧版本存档。
+   */
+  async readWithPlayer(accountId: string): Promise<{ name: string; data: SaveData; version: number }> {
+    const row = await this.selectPlayerSave(accountId);
+    if (row && row.version !== null && row.version > CURRENT_SAVE_VERSION) {
+      throw new InternalServerErrorException(
+        `存档版本 v${row.version} 超过服务端支持的 v${CURRENT_SAVE_VERSION}`,
+      );
+    }
+    if (row && row.version === CURRENT_SAVE_VERSION) {
+      return { name: row.player_name, data: row.data as unknown as SaveData, version: CURRENT_SAVE_VERSION };
+    }
+    // 懒创建 / 版本迁移：复用 read()，它内部会补齐 player 与 save 并回写
+    const { data } = await this.read(accountId);
+    const name = row?.player_name ?? (await this.ensurePlayer(accountId)).name;
+    return { name, data, version: CURRENT_SAVE_VERSION };
   }
 
   /**
@@ -117,12 +186,13 @@ export class SaveService {
    * 让客户端重新拉取服务器的最新存档再决定下一步——保证服务端永远是唯一可信源。
    */
   async write(accountId: string, clientVersion: number, data: Record<string, unknown>) {
-    const player = await this.ensurePlayer(accountId);
-    const save = await this.prisma.save.findUnique({ where: { playerId: player.id } });
+    // 一次 LEFT JOIN 同时拿 player 与当前版本，替代原先 ensurePlayer + findUnique 两条串行查询
+    const row = await this.selectPlayerSave(accountId);
+    const playerId = row?.player_id ?? (await this.ensurePlayer(accountId)).id;
+    const currentVersion = row?.version ?? CURRENT_SAVE_VERSION;
 
     // 首次写入允许基于"空存档"直接创建；否则要求客户端版本必须等于 DB 版本
-    const currentVersion = save?.version ?? CURRENT_SAVE_VERSION;
-    if (save && clientVersion !== currentVersion) {
+    if (row && row.version !== null && clientVersion !== currentVersion) {
       throw new ConflictException(
         `存档版本冲突：客户端 v${clientVersion}，服务端 v${currentVersion}，请重新拉取`,
       );
@@ -133,9 +203,9 @@ export class SaveService {
     const migrated = migrateSave(clientVersion, data as unknown as SaveData);
 
     const next = await this.prisma.save.upsert({
-      where: { playerId: player.id },
+      where: { playerId },
       create: {
-        playerId: player.id,
+        playerId,
         version: CURRENT_SAVE_VERSION,
         data: migrated as unknown as Prisma.InputJsonValue,
       },
