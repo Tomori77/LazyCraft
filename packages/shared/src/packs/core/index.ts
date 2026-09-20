@@ -16,6 +16,7 @@ import { SKILLS, SKILL_ATTACK, SKILL_MINING, SKILL_WOODCUTTING } from '../../dat
 import { ACTIONS } from '../../data/actions.js';
 import { ABSTRACT_RESOURCES, ITEMS } from '../../data/resources.js';
 import { EQUIPMENT_SLOTS } from '../../data/equipment-slots.js';
+import { ATTRIBUTE_DEFINITIONS } from '../../attributes/index.js';
 
 /* ------------------------------------------------------------------ */
 /* 物品                                                                  */
@@ -162,5 +163,8 @@ export const CorePack: ContentPack = {
 
     // 本体全部手绘图标也是"内容"：统一登记后随快照下发，前端无需另维护图标表
     for (const icon of HAND_DRAWN_ICONS) registry.icon(icon);
+
+    // 人物属性同为内容：前端面板按元数据 + i18n 渲染，DLC 加属性不改前端
+    for (const attribute of ATTRIBUTE_DEFINITIONS) registry.attribute(attribute);
   },
 };

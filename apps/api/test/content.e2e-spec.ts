@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { ACTIONS, HAND_DRAWN_ICONS, ITEMS, SKILLS } from '@lazycraft/shared';
+import { ACTIONS, ATTRIBUTE_DEFINITIONS, HAND_DRAWN_ICONS, ITEMS, SKILLS } from '@lazycraft/shared';
 import { ContentModule } from './../src/content/content.module.js';
 
 // 只挂载 ContentModule 而非整个 AppModule：内容接口公开且不碰数据库，
@@ -32,6 +32,7 @@ describe('ContentController (e2e)', () => {
     expect(Array.isArray(res.body.equipmentSlots)).toBe(true);
     expect(Array.isArray(res.body.itemCatalog)).toBe(true);
     expect(Array.isArray(res.body.icons)).toBe(true);
+    expect(Array.isArray(res.body.attributes)).toBe(true);
 
     // 技能 / 物品目录以 Registry 为准，必须覆盖 data/*.ts 的全量表
     expect(res.body.skills).toHaveLength(SKILLS.length);
@@ -40,6 +41,8 @@ describe('ContentController (e2e)', () => {
     expect(res.body.actions).toHaveLength(ACTIONS.length + 2);
     // 图标 = CorePack 登记的本体手绘全部
     expect(res.body.icons).toHaveLength(HAND_DRAWN_ICONS.length);
+    // 属性元数据 = 本体属性全集（前端属性面板按它渲染）
+    expect(res.body.attributes).toHaveLength(ATTRIBUTE_DEFINITIONS.length);
   });
 
   it('返回的每条动作都带 tier，技能都带分组字段', async () => {

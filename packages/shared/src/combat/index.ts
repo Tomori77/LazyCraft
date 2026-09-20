@@ -27,6 +27,12 @@ import type { Enemy } from '../types.js';
 import { levelFromExp } from '../skill/skill-service.js';
 import { rollLoot, findLootTableById, type LootResult, type Equipment } from '../loot/index.js';
 import { FOODS } from './foods.js';
+import {
+  ATTRIBUTE_BASE,
+  ATTRIBUTE_IDS,
+  sumAttributeContributions,
+  type PlayerAttributes,
+} from '../attributes/index.js';
 
 /** 食物恢复量表：推演里动态查，防御"背包里有非食物物品"的脏数据 */
 const FOOD_HEAL: Readonly<Record<string, number>> = Object.freeze(
@@ -51,6 +57,21 @@ export const PLAYER_HP_PER_LEVEL = 2;
 
 /** 死亡惩罚的比例系数：死亡后损失（清空当前战斗的一切收益，回到起点） */
 export const DEATH_PENALTY_NOTE = '战斗失败后不会丢失物品，但本次战斗的全部收益作废';
+
+/*
+ * 新属性（task-34）的"中性默认"。
+ *
+ * 为什么全部取"不改变旧行为"的值？
+ *   任务硬要求：默认属性下战斗结果必须与 task-18 等价。
+ *   命中率 100 = 必中；闪避 0 = 不闪；暴击率 0 = 不暴击；暴击伤害 100% = 无加成；
+ *   减伤 0 = 不减；最大/最小伤害 0 = 回落到"减法公式"。任何一项非中性都是行为变更。
+ */
+/** 默认命中率（百分比）：100 表示必中，不引入未命中分支 */
+export const DEFAULT_ACCURACY_PERCENT = 100;
+/** 默认暴击伤害（百分比）：100 表示暴击无额外倍率 */
+export const DEFAULT_CRIT_DAMAGE_PERCENT = 100;
+/** 默认攻击间隔（毫秒），与 PLAYER_ATTACK_INTERVAL_MS 同值，供属性面板展示 */
+export const DEFAULT_ATTACK_INTERVAL_MS = PLAYER_ATTACK_INTERVAL_MS;
 
 /* ------------------------------------------------------------------ */
 /* 类型                                                                  */
@@ -145,21 +166,92 @@ export function playerAttackLevel(attackExp: number): number {
   return levelFromExp(attackExp);
 }
 
+/** 装备对属性的贡献（task-14 装备快照的旧三元组形状） */
+export interface EquipmentAttributeSource {
+  /** 平坦攻击力（落到属性 'attack'） */
+  attack: number;
+  /** 防御（落到属性 'defense'） */
+  defense: number;
+  /** 生命上限加成（落到属性 'hp'） */
+  hp: number;
+}
+
 /**
- * 计算玩家战斗面板属性。
+ * 玩家最终属性面板（task-34）：把"等级派生基础值 + 装备 + 其它来源"聚合成属性映射。
  *
- * 为什么 max_hp 不是固定 10？
- *   《框架设计》的"练级有回报"原则：攻击等级既影响"打得动"也影响"扛得住"。
- *   把 hp 挂在等级上，避免了 P0 单独再做一套"生命技能"。
+ * 关键点：默认值下必须与旧 `playerStats` 完全等价。
+ *   - 生命 = PLAYER_BASE_HP + 等级×PLAYER_HP_PER_LEVEL + 装备 hp
+ *   - 攻击 = 等级×PLAYER_ATTACK_PER_LEVEL + 装备 attack
+ *   - 防御 = 装备 defense
+ *   攻击等级派生值作为"基础来源"，装备 final_stats 按属性 id 映射后相加，
+ *   与旧写的加法逐项一致（含 max(0, ·) 的钳制，放在归一化步骤）。
+ *
+ * 为什么 hp/attack/defense 之外还要补齐其它属性？
+ *   P4-5 要求面板暴露全集；未装备提供的新属性取其"中性默认"
+ *   （命中 100 / 暴击伤害 100 / 其余 0），保证战斗结算不因缺属性而漏分支。
+ */
+export function playerAttributes(
+  attackExp: number,
+  equipment: EquipmentAttributeSource,
+  extras: ReadonlyArray<PlayerAttributes> = [],
+): PlayerAttributes {
+  const level = playerAttackLevel(attackExp);
+
+  // 先落本体全集的"中性默认"：命中 100 / 暴击伤害 100 / 其余 0；
+  // 未装备提供的属性（魔力、减伤、闪避…）由此保证存在且不改变旧战斗结果。
+  const base: Record<string, number> = {
+    [ATTRIBUTE_IDS.HP]: 0,
+    [ATTRIBUTE_IDS.MP]: 0,
+    [ATTRIBUTE_IDS.ATTACK]: 0,
+    [ATTRIBUTE_IDS.DEFENSE]: 0,
+    [ATTRIBUTE_IDS.DAMAGE_REDUCTION]: 0,
+    [ATTRIBUTE_IDS.EVASION_MELEE]: 0,
+    [ATTRIBUTE_IDS.EVASION_RANGED]: 0,
+    [ATTRIBUTE_IDS.EVASION_MAGIC]: 0,
+    [ATTRIBUTE_IDS.ACCURACY]: DEFAULT_ACCURACY_PERCENT,
+    [ATTRIBUTE_IDS.MAX_HIT]: 0,
+    [ATTRIBUTE_IDS.MIN_HIT]: 0,
+    [ATTRIBUTE_IDS.CRIT_CHANCE]: 0,
+    [ATTRIBUTE_IDS.CRIT_DAMAGE]: DEFAULT_CRIT_DAMAGE_PERCENT,
+  };
+
+  // 等级派生 + 装备（沿用旧口径的 max(0, ·) 钳制）
+  base[ATTRIBUTE_IDS.HP] =
+    PLAYER_BASE_HP + level * PLAYER_HP_PER_LEVEL + Math.max(0, equipment.hp);
+  base[ATTRIBUTE_IDS.ATTACK] =
+    level * PLAYER_ATTACK_PER_LEVEL + Math.max(0, equipment.attack);
+  base[ATTRIBUTE_IDS.DEFENSE] = Math.max(0, equipment.defense);
+
+  // extras（DLC / 被动）在最终值上再做加法，不会覆盖上面的旧口径结果
+  return sumAttributeContributions(base, {}, extras);
+}
+
+/**
+ * 把最终属性映射收窄成战斗推演消费的 `CombatantStats`。
+ *
+ * 为什么战斗推演仍吃旧四元组而不是直接吃属性映射？
+ *   本体的减法推演只用到 hp/攻击/防御/间隔；让推演改吃整张属性表会牵动
+ *   大量既有断言。收窄放在边界上：新属性体系是"数据面"，
+ *   推演是"计算面"，二者用这个函数解耦；DLC 覆写公式时也只需给新的 CombatantStats。
+ */
+export function combatantStatsFromAttributes(attributes: PlayerAttributes): CombatantStats {
+  return {
+    max_hp: attributes[ATTRIBUTE_IDS.HP] ?? PLAYER_BASE_HP,
+    attack: attributes[ATTRIBUTE_IDS.ATTACK] ?? 0,
+    defense: attributes[ATTRIBUTE_IDS.DEFENSE] ?? 0,
+    interval_ms: attributes['interval_ms'] ?? PLAYER_ATTACK_INTERVAL_MS,
+  };
+}
+
+/**
+ * 计算玩家战斗面板属性（向后兼容入口）。
+ *
+ * 保留旧签名：既有调用方（后端 combat.service / 单测）无需改动，
+ * 内部改走属性聚合再收窄，默认值下结果与 task-18 完全一致。
+ * DLC 若要换一套"从属性到 CombatantStats"的公式，用 registerCombatFormulas 覆写。
  */
 export function playerStats(attackExp: number, equipment: { attack: number; defense: number; hp: number }): CombatantStats {
-  const level = playerAttackLevel(attackExp);
-  return {
-    max_hp: PLAYER_BASE_HP + level * PLAYER_HP_PER_LEVEL + Math.max(0, equipment.hp),
-    attack: level * PLAYER_ATTACK_PER_LEVEL + Math.max(0, equipment.attack),
-    defense: Math.max(0, equipment.defense),
-    interval_ms: PLAYER_ATTACK_INTERVAL_MS,
-  };
+  return getCombatFormulas().playerStats(attackExp, equipment);
 }
 
 /** 敌人面板属性：直接读 Enemy 数据，间隔给一个统一的"小怪攻速" */
@@ -170,6 +262,167 @@ export function enemyStats(enemy: Enemy): CombatantStats {
     defense: Math.max(0, enemy.defense),
     // 敌人攻击间隔：固定 3s。未来需要"快攻型小怪"再把 interval 挂到 Enemy 类型上。
     interval_ms: 3_000,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* 战斗公式策略（DLC 覆写点，task-34）                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 战斗公式策略：把"玩家属性 → 战斗面板"与"一次攻击的伤害解析"抽成可替换实现。
+ *
+ * 为什么不把命中/暴击/减伤的每条公式都拆成单独 hook？
+ *   本体默认行为是"减法且不命中/不暴击"，拆得太碎会让默认路径变成一堆恒等分支；
+ *   给一个整体策略入口，DLC 想换成乘区/命中/暴击整套时覆写一处即可，
+ *   同时默认实现保持极其简单、可读、与旧行为逐位一致。
+ */
+
+/** 一次攻击的伤害解析上下文 */
+export interface DamageContext {
+  /** 旧减法公式的结果 max(0, atk - def)：默认路径直接返回它 */
+  base_damage: number;
+  /** 出手方面板 */
+  attacker: CombatantStats;
+  /** 受击方面板 */
+  defender: CombatantStats;
+  /** 出手方伤害参数（命中/暴击/伤害区间） */
+  attacker_profile: DamageProfile;
+  /** 受击方伤害参数（闪避/减伤） */
+  defender_profile: DamageProfile;
+  /** 0~1 均匀随机数；默认路径在参数中性时**不会**调用它，保证旧结果可复现 */
+  rng: () => number;
+}
+
+export interface CombatFormulas {
+  /** 由攻击经验 + 装备派生玩家战斗面板（默认 = playerStats 的旧实现） */
+  playerStats: (attackExp: number, equipment: EquipmentAttributeSource) => CombatantStats;
+  /** 由最终属性派生伤害参数（命中/闪避/暴击/减伤/伤害区间） */
+  damageProfile: DamageProfileProvider;
+  /** 解析一次攻击的最终伤害（默认 = 中性参数下原样返回 base_damage） */
+  resolveDamage: (ctx: DamageContext) => number;
+}
+
+/** 中性伤害参数：命中 100 / 闪避 0 / 无伤害区间 / 无暴击 / 无减伤 */
+export const NEUTRAL_DAMAGE_PROFILE: DamageProfile = Object.freeze({
+  accuracy_percent: DEFAULT_ACCURACY_PERCENT,
+  evasion_percent: 0,
+  max_hit: 0,
+  min_hit: 0,
+  crit_chance_percent: 0,
+  crit_damage_percent: DEFAULT_CRIT_DAMAGE_PERCENT,
+  damage_reduction_percent: 0,
+});
+
+/** 百分比钳制到 [0,100]，非有限数按 0（脏数据不产生负伤害/超额减伤） */
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, value));
+}
+
+/**
+ * 默认伤害解析。
+ *
+ * 关键约束——参数中性时**逐步短路**、不调用 rng：
+ *   命中率 = 出手方命中 − 受击方闪避；若 = 100 则不掷命中。
+ *   伤害区间 max_hit>0 才掷区间；暴击率>0 才掷暴击；减伤>0 才乘减伤系数。
+ *   因此默认玩家（命中 100 / 其余 0）走完整条路径后得到的就是 base_damage 本身，
+ *   且 rng 调用序列与旧实现完全一致（旧实现只在胜利时用一次 rng 抽掉落）。
+ */
+export function defaultResolveDamage(ctx: DamageContext): number {
+  const { base_damage, attacker_profile: ap, defender_profile: dp, rng } = ctx;
+
+  // 1. 命中/闪避：默认 100 - 0 = 100，短路不掷
+  const hitChance = clampPercent(clampPercent(ap.accuracy_percent) - clampPercent(dp.evasion_percent));
+  if (hitChance < 100 && rng() * 100 >= hitChance) return 0;
+
+  // 2. 基础伤害：max_hit>0 时按 [min_hit, max_hit] 取值，否则沿用减法结果
+  let damage = base_damage;
+  if (ap.max_hit > 0) {
+    const lo = Math.min(ap.min_hit, ap.max_hit);
+    const hi = Math.max(ap.min_hit, ap.max_hit);
+    damage = lo + rng() * (hi - lo);
+  }
+
+  // 3. 暴击：默认 0，短路不掷
+  const critChance = clampPercent(ap.crit_chance_percent);
+  if (critChance > 0 && rng() * 100 < critChance) {
+    damage *= ap.crit_damage_percent / 100;
+  }
+
+  // 4. 受击方减伤：默认 0，短路不变
+  const reduction = clampPercent(dp.damage_reduction_percent);
+  if (reduction > 0) damage *= (100 - reduction) / 100;
+
+  // 旧实现伤害恒为整数；默认路径 damage === base_damage（整数），floor 后不变
+  return Math.max(0, Math.floor(damage));
+}
+
+const defaultCombatFormulas: CombatFormulas = {
+  playerStats: (attackExp, equipment) =>
+    combatantStatsFromAttributes(playerAttributes(attackExp, equipment)),
+  damageProfile: defaultDamageProfile,
+  resolveDamage: defaultResolveDamage,
+};
+
+let currentFormulas: CombatFormulas = defaultCombatFormulas;
+
+/** 覆写战斗公式策略，返回恢复函数（与 registerLevelCalculator 同款可还原接口） */
+export function registerCombatFormulas(formulas: Partial<CombatFormulas>): () => void {
+  const previous = currentFormulas;
+  currentFormulas = { ...currentFormulas, ...formulas };
+  return () => {
+    currentFormulas = previous;
+  };
+}
+
+/** 恢复默认战斗公式 */
+export function resetCombatFormulas(): void {
+  currentFormulas = defaultCombatFormulas;
+}
+
+/** 当前生效的战斗公式策略 */
+export function getCombatFormulas(): CombatFormulas {
+  return currentFormulas;
+}
+
+/**
+ * 从最终属性计算"本次攻击的伤害区间与命中/暴击参数"。
+ *
+ * 默认实现刻意返回"命中 100%、暴击 0%、最大/最小伤害 0"，
+ * 让 simulateCombat 的伤害仍由减法公式 max(0, atk - def) 决定——
+ * 这正是"默认下与现状等价"的落点。DLC 可覆写本函数接入乘区/命中/暴击。
+ */
+export interface DamageProfile {
+  /** 命中率百分比（0~100）；默认 100 */
+  accuracy_percent: number;
+  /** 被闪避的概率百分比（0~100）；默认 0 */
+  evasion_percent: number;
+  /** 最大伤害覆盖值（>0 时取代减法公式）；默认 0 = 用减法 */
+  max_hit: number;
+  /** 最小伤害下限；默认 0 */
+  min_hit: number;
+  /** 暴击率百分比；默认 0 */
+  crit_chance_percent: number;
+  /** 暴击伤害倍率百分比；默认 100 = 无加成 */
+  crit_damage_percent: number;
+  /** 伤害减免百分比；默认 0 */
+  damage_reduction_percent: number;
+}
+
+/** 默认伤害参数提供者，供 DLC 覆写（与 CombatFormulas 分开：面板与伤害是两件事） */
+export type DamageProfileProvider = (attributes: PlayerAttributes) => DamageProfile;
+
+/** 中性伤害参数：一切照旧，减法公式生效 */
+export function defaultDamageProfile(attributes: PlayerAttributes): DamageProfile {
+  return {
+    accuracy_percent: attributes[ATTRIBUTE_IDS.ACCURACY] ?? DEFAULT_ACCURACY_PERCENT,
+    evasion_percent: attributes[ATTRIBUTE_IDS.EVASION_MELEE] ?? 0,
+    max_hit: attributes[ATTRIBUTE_IDS.MAX_HIT] ?? 0,
+    min_hit: attributes[ATTRIBUTE_IDS.MIN_HIT] ?? 0,
+    crit_chance_percent: attributes[ATTRIBUTE_IDS.CRIT_CHANCE] ?? 0,
+    crit_damage_percent: attributes[ATTRIBUTE_IDS.CRIT_DAMAGE] ?? DEFAULT_CRIT_DAMAGE_PERCENT,
+    damage_reduction_percent: attributes[ATTRIBUTE_IDS.DAMAGE_REDUCTION] ?? 0,
   };
 }
 
@@ -190,6 +443,16 @@ export interface SimulateCombatInput {
   food: Record<string, number>;
   /** 掉落随机数源（胜利时调用一次 rollLoot） */
   rng?: () => number;
+  /**
+   * 玩家最终属性（task-34，可选）。
+   *
+   * 为什么可选？—— 既有调用方（单测/旧 e2e）只传 CombatantStats，
+   * 缺省时用中性伤害参数，行为与 task-18 完全一致；
+   * 传了属性才启用命中/暴击/伤害区间/减伤这些新维度。
+   */
+  player_attributes?: PlayerAttributes;
+  /** 敌人最终属性（可选）；缺省中性参数（命中 100 / 闪避 0 / 无暴击/减伤） */
+  enemy_attributes?: PlayerAttributes;
 }
 
 /**
@@ -211,6 +474,16 @@ export function simulateCombat(input: SimulateCombatInput): CombatReport {
   const { started_at, now, enemy, rng = Math.random } = input;
   const player = input.player;
   const enemyStat = enemyStats(enemy);
+
+  // 伤害参数：缺省用中性档（命中 100/闪避 0/无暴击/无减伤），保证旧调用方行为不变
+  const formulas = getCombatFormulas();
+  const playerProfile = input.player_attributes
+    ? formulas.damageProfile(input.player_attributes)
+    : NEUTRAL_DAMAGE_PROFILE;
+  const enemyProfile = input.enemy_attributes
+    ? formulas.damageProfile(input.enemy_attributes)
+    : NEUTRAL_DAMAGE_PROFILE;
+  const resolveDamage = formulas.resolveDamage;
 
   // 玩家剩余食物的工作副本：推演期间只动这份，不改入参
   const foodLeft: Record<string, number> = { ...input.food };
@@ -248,18 +521,34 @@ export function simulateCombat(input: SimulateCombatInput): CombatReport {
   };
 
   /**
-   * 一方出手：伤害 = max(0, atk - def)，扣目标 HP 并记日志；
-   * 返回目标是否死亡。
+   * 一方出手：伤害先走 old-school 减法 max(0, atk - def)，再交给可覆写的
+   * resolveDamage 处理命中/区间/暴击/减伤；扣目标 HP 并记日志，返回目标是否死亡。
+   *
+   * 默认参数下 resolveDamage 原样返回减法结果，因此与 task-18 逐位等价。
    */
   const strike = (actor: 'player' | 'enemy', at: number): boolean => {
     if (actor === 'player') {
-      const damage = Math.max(0, player.attack - enemyStat.defense);
+      const damage = resolveDamage({
+        base_damage: Math.max(0, player.attack - enemyStat.defense),
+        attacker: player,
+        defender: enemyStat,
+        attacker_profile: playerProfile,
+        defender_profile: enemyProfile,
+        rng,
+      });
       enemyHp = Math.max(0, enemyHp - damage);
       log.push({ at, actor, damage, target_hp: enemyHp });
       return enemyHp <= 0;
     }
-    // 敌人出手：先算基础伤害，扣玩家 HP
-    const damage = Math.max(0, enemyStat.attack - player.defense);
+    // 敌人出手：同样的伤害解析，攻守双方对调
+    const damage = resolveDamage({
+      base_damage: Math.max(0, enemyStat.attack - player.defense),
+      attacker: enemyStat,
+      defender: player,
+      attacker_profile: enemyProfile,
+      defender_profile: playerProfile,
+      rng,
+    });
     playerHp = Math.max(0, playerHp - damage);
     log.push({ at, actor, damage, target_hp: playerHp });
     // 玩家被打后若血量告急且有食物，立刻吃一口再继续

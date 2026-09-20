@@ -225,6 +225,34 @@ export interface EquipmentSlotMeta {
 }
 
 /**
+ * 人物属性定义（task-34）。
+ *
+ * 为什么属性也要做成"可注册内容"而不是引擎里的一张硬编码字段表？
+ *   铁律"内容即数据"：DLC 加一个新属性（例如"吸血"）不应该改引擎源码，
+ *   而应像物品/技能一样经 Registry 登记；前端拿元数据 + i18n 渲染，
+ *   存档侧属性是 `Record<id, number>`，天然接纳注册表之外的新 id。
+ *
+ * id 与 name_key 分离：id 是存档里的稳定键（改显示名不动存档），
+ * name_key 是 i18n key（多语言与展示解耦）。
+ */
+export interface AttributeDefinition {
+  /** 属性唯一 ID（例如 'hp' / 'crit_chance'），存档与聚合函数都按它索引 */
+  id: string;
+  /** 显示名 i18n key（例如 'attribute.hp.name'） */
+  name_key: string;
+  /** 缺省基础值：未穿戴装备、无加成时该属性的面板值 */
+  default_value: number;
+  /** 展示顺序（前端属性面板排序；DLC 属性用大数落在末尾） */
+  order: number;
+  /** 展示分组（前端按组排版；缺省归入 'general'） */
+  category?: string;
+  /** 是否按百分比展示（前端追加 '%'，例如命中率/闪避/暴击率） */
+  percent?: boolean;
+  /** 说明文案 i18n key */
+  description_key?: string;
+}
+
+/**
  * 内容类别：Registry.get()/list() 的查询维度
  *
  * 为什么抽象资源 / 槽位 / 图标也算内容？
@@ -238,7 +266,8 @@ export type ContentKind =
   | 'enemy'
   | 'abstractResource'
   | 'slot'
-  | 'icon';
+  | 'icon'
+  | 'attribute';
 
 /** 按类别存储的内容联合类型 */
 export type Content =
@@ -248,7 +277,25 @@ export type Content =
   | Enemy
   | AbstractResource
   | EquipmentSlotMeta
-  | IconDef;
+  | IconDef
+  | AttributeDefinition;
+
+/**
+ * 人物等级计算器（task-34）。
+ *
+ * 为什么把"人物等级"做成可替换的函数而不是写死公式？
+ *   P4-4 已定：本体不写死口径，由 DLC 决定（战斗等级 / 总等级 / 攻击等级皆可）。
+ *   接口签名固定为 `(skills, attributes) => number`，DLC 通过覆写替换实现；
+ *   默认实现只返回攻击技能等级，与 task-26 起的既有语义完全一致（向后兼容）。
+ *
+ * 为什么入参给的是"技能等级 map + 最终属性"而不是经验？
+ *   等级计算器只应消费"已算好的等级/属性"，避免它反向依赖经验曲线与聚合细节；
+ *   这样 DLC 也能基于属性（例如生命值）参与等级公式。
+ */
+export type PersonLevelCalculator = (
+  skills: Readonly<Record<string, number>>,
+  attributes: Readonly<Record<string, number>>,
+) => number;
 
 /** Registry.validate() 的返回结构：ok=false 时 errors 包含全部不一致项 */
 export interface ValidateResult {
@@ -289,6 +336,13 @@ export interface Registry {
    *   统一登记进 Registry 后，`/api/content` 快照与内容包天然同源。
    */
   icon(def: IconDef): void;
+  /**
+   * 注册一个人物属性：DLC 新增属性不应改引擎源码。
+   *
+   * 未登记的属性 id 仍可存在于存档/聚合结果里（聚合函数不拦截），
+   * 但 Registry 会在 validate 阶段报出"未登记属性"，让配置错误可见而非静默。
+   */
+  attribute(def: AttributeDefinition): void;
 
   /* 读视角：引擎消费用 */
   /** 整包注册一个内容包 */

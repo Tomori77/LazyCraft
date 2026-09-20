@@ -14,6 +14,7 @@
 import { validateIcons } from '@lazycraft/icons';
 import type {
   AbstractResource,
+  AttributeDefinition,
   Content,
   ContentKind,
   ContentPack,
@@ -42,6 +43,7 @@ export class ContentRegistry implements Registry {
   private readonly abstractResources = new Map<string, AbstractResource>();
   private readonly slots = new Map<string, EquipmentSlotMeta>();
   private readonly icons = new Map<string, IconDef>();
+  private readonly attributes = new Map<string, AttributeDefinition>();
 
   /** 已注册的内容包标识（用于重复注册防御和审计） */
   private readonly registeredPacks: string[] = [];
@@ -76,6 +78,10 @@ export class ContentRegistry implements Registry {
 
   icon(def: IconDef): void {
     this.icons.set(def.name, def);
+  }
+
+  attribute(def: AttributeDefinition): void {
+    this.attributes.set(def.id, def);
   }
 
   /* ------------------------------------------------------------------ */
@@ -125,6 +131,8 @@ export class ContentRegistry implements Registry {
    *       却会让前端排序不稳定、槽位落不到人偶上的配置错误）
    *   6. icon.name 非空、icon.paths 非空数组、每条 path 的 d 非空字符串
    *      （图标缺 path 前端会渲染成空白，是 Map 拦不住、肉眼也难发现的配置错误）
+   *   7. attribute.id / name_key 非空、default_value 为有限数、order 全局唯一
+   *      （属性元数据驱动前端面板，坏 id / 缺文案 / 缺省值非数都会让面板出错）
    *
    * 为什么 error 是字符串而不是结构化对象？
    *   启动阶段错误直接打印到控制台 / 写入日志，人读优先；
@@ -194,6 +202,31 @@ export class ContentRegistry implements Registry {
     const iconResult = validateIcons([...this.icons.values()]);
     errors.push(...iconResult.errors);
 
+    // 校验属性元数据：id / name_key 非空、default_value 有限、order 唯一
+    // （属性顺序重复会让前端面板排序不稳定，与槽位 order 同理）
+    const usedAttrOrders = new Map<number, string>();
+    for (const attribute of this.attributes.values()) {
+      if (attribute.id.length === 0) {
+        errors.push(`[attribute] id 不能是空字符串`);
+      }
+      if (!attribute.name_key || attribute.name_key.length === 0) {
+        errors.push(`[attribute:${attribute.id}] name_key 不能是空字符串`);
+      }
+      if (!Number.isFinite(attribute.default_value)) {
+        errors.push(
+          `[attribute:${attribute.id}] default_value 必须是有限数，收到: ${String(attribute.default_value)}`,
+        );
+      }
+      const owner = usedAttrOrders.get(attribute.order);
+      if (owner !== undefined) {
+        errors.push(
+          `[attribute:${attribute.id}] order ${attribute.order} 与属性 "${owner}" 重复`,
+        );
+      } else {
+        usedAttrOrders.set(attribute.order, attribute.id);
+      }
+    }
+
     return { ok: errors.length === 0, errors };
   }
 
@@ -217,6 +250,8 @@ export class ContentRegistry implements Registry {
         return this.slots;
       case 'icon':
         return this.icons;
+      case 'attribute':
+        return this.attributes;
       default:
         // 类型层已穷尽，防御未知运行时字符串
         throw new Error(`unknown content kind: ${String(kind)}`);

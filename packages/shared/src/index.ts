@@ -25,6 +25,12 @@ export * from './loot/index.js';
 export * from './carry/index.js';
 export * from './content/index.js';
 
+// 人物属性体系（task-34）：属性 id 稳定集合、元数据注册、聚合纯函数
+export * from './attributes/index.js';
+
+// 人物等级计算器接口（task-34）：可注册/覆写，默认 = 攻击技能等级
+export * from './level/index.js';
+
 // 战斗核心 + 食物配置 + 敌人战斗属性（task-18）：服务器权威的对砍推演
 export * from './combat/index.js';
 export * from './combat/foods.js';

@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   AbstractResource,
+  AttributeDefinition,
   ContentPack,
   EquipmentSlotMeta,
   Item,
@@ -18,6 +19,7 @@ import type {
 } from '../types.js';
 import { ABSTRACT_RESOURCES, RES_GOLD } from '../data/resources.js';
 import { EQUIPMENT_SLOTS } from '../data/equipment-slots.js';
+import { ATTRIBUTE_DEFINITIONS } from '../attributes/index.js';
 import { CorePack } from '../packs/core/index.js';
 import {
   ACTION_CHOP_TREE,
@@ -90,6 +92,46 @@ describe('ContentRegistry', () => {
     expect(resources).toHaveLength(ABSTRACT_RESOURCES.length);
     expect(resources).toHaveLength(4);
     expect(resources.map((r) => r.id)).toContain(RES_GOLD.id);
+  });
+
+  it('list(attribute) 注册 CorePack 后 = 本体属性集且含新属性', () => {
+    const registry = createRegistry();
+    registry.register(CorePack);
+
+    const attrs = registry.list('attribute') as AttributeDefinition[];
+    expect(attrs).toHaveLength(ATTRIBUTE_DEFINITIONS.length);
+    const ids = attrs.map((a) => a.id);
+    for (const id of ['hp', 'mp', 'defense', 'damage_reduction', 'evasion_melee', 'crit_chance']) {
+      expect(ids).toContain(id);
+    }
+    expect(registry.get('hp', 'attribute')).toEqual(
+      ATTRIBUTE_DEFINITIONS.find((a) => a.id === 'hp'),
+    );
+  });
+
+  it('validate 报告属性 order 重复与空 name_key', () => {
+    const badAttrs: AttributeDefinition[] = [
+      { id: 'a', name_key: 'attribute.a.name', default_value: 0, order: 1 },
+      { id: 'b', name_key: '', default_value: 0, order: 1 },
+    ];
+    const badPack: ContentPack = {
+      id: 'bad_attr_pack',
+      name: '坏属性包',
+      version: '0.0.1',
+      register(registry) {
+        for (const attr of badAttrs) registry.attribute(attr);
+      },
+    };
+
+    const registry = new ContentRegistry();
+    registry.register(badPack);
+
+    const result = registry.validate();
+    expect(result.ok).toBe(false);
+    const all = result.errors.join('\n');
+    expect(all).toContain('[attribute:b]');
+    expect(all).toContain('name_key');
+    expect(all).toContain('order 1');
   });
 
   it('list(slot) 注册 CorePack 后数量=10 且 order 唯一', () => {

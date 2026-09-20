@@ -1,5 +1,10 @@
 import { apiGet, apiPost } from '../lib/api.ts';
-import type { CarriedItem, EquipmentInstance, EquipmentSlot } from '@lazycraft/shared';
+import type {
+  CarriedItem,
+  EquipmentInstance,
+  EquipmentSlot,
+  PlayerAttributes,
+} from '@lazycraft/shared';
 
 /**
  * 玩家信息接口客户端（task-26 后端契约的前端唯一一份形状定义）。
@@ -17,6 +22,8 @@ export interface PlayerData {
   name: string;
   level: number;
   skills: Record<string, PlayerSkillProgress>;
+  /** 最终人物属性（task-34）：属性 id → 数值，展示名/格式由 /api/content 的属性元数据驱动 */
+  attributes: PlayerAttributes;
   abstract_resources: Record<string, number>;
   equipment: Record<string, EquipmentInstance | null>;
   inventory: CarriedItem[];

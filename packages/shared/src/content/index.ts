@@ -14,6 +14,7 @@
 
 import type {
   AbstractResource,
+  AttributeDefinition,
   Content,
   ContentKind,
   EquipmentSlotMeta,
@@ -34,6 +35,8 @@ export interface ContentSnapshot {
   itemCatalog: readonly Item[];
   /** 全部已注册图标（本体手绘 + DLC 登记），前端统一从此渲染 */
   icons: readonly IconDef[];
+  /** 全部已注册人物属性元数据（task-34）：前端属性面板按 name_key/order 渲染 */
+  attributes: readonly AttributeDefinition[];
 }
 
 /**
@@ -64,6 +67,7 @@ export function buildContentSnapshot(registry: ContentRegistry): ContentSnapshot
     equipmentSlots: listOf<EquipmentSlotMeta>(registry, 'slot'),
     itemCatalog: listOf<Item>(registry, 'item'),
     icons: listOf<IconDef>(registry, 'icon'),
+    attributes: listOf<AttributeDefinition>(registry, 'attribute'),
   };
 }
 

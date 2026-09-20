@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { sumEquipmentStats, type EquipmentInstance, type EquipmentSlot } from '@lazycraft/shared';
+import type { EquipmentInstance, EquipmentSlot } from '@lazycraft/shared';
 import { useT } from '../i18n/index.ts';
 import { useContent } from '../content/content-context.tsx';
 import { usePlayer } from '../player/player-context.tsx';
@@ -57,10 +57,29 @@ export function ProfilePage({ draggedItem, onClose }: ProfilePageProps) {
     });
   }, [content]);
 
-  const totalStats = useMemo(
-    () => sumEquipmentStats(Object.values(player?.equipment ?? {})),
-    [player],
-  );
+  /**
+   * 属性展示行：以内容快照的属性元数据为骨架（DLC 新属性自动出现），
+   * 再按 id 取玩家最终属性值；未知属性（有值但无元数据）也不崩，用 id 兜底展示。
+   * 名称走 name_key → i18n，缺 key 时 t() 返回 key 本身（不白屏）。
+   */
+  const attributeRows = useMemo(() => {
+    const values = player?.attributes ?? {};
+    const defs = [...(content?.attributes ?? [])].sort((a, b) => a.order - b.order);
+    const rows = defs.map((def) => ({
+      id: def.id,
+      label: t(def.name_key),
+      value: values[def.id] ?? def.default_value,
+      percent: def.percent === true,
+    }));
+
+    // 元数据未覆盖但玩家属性里存在的 id（DLC 尚未登记）：追加到末尾，避免数值被吞
+    const known = new Set(rows.map((row) => row.id));
+    for (const id of Object.keys(values).sort()) {
+      if (known.has(id)) continue;
+      rows.push({ id, label: id, value: values[id], percent: false });
+    }
+    return rows;
+  }, [content, player, t]);
 
   const resources = useMemo(() => {
     if (!content?.abstractResources) return [];
@@ -173,22 +192,21 @@ export function ProfilePage({ draggedItem, onClose }: ProfilePageProps) {
           </div>
 
           <div className="profile-attrs">
-            <div>
+            <div className="profile-attrs-block">
               <div className="section-label">{t('profile.stats')}</div>
-              <div className="stat-row">
-                <span>{t('profile.stat.attack')}</span>
-                <span className="v">+{totalStats.attack}</span>
-              </div>
-              <div className="stat-row">
-                <span>{t('profile.stat.defense')}</span>
-                <span className="v">+{totalStats.defense}</span>
-              </div>
-              <div className="stat-row">
-                <span>{t('profile.stat.hp')}</span>
-                <span className="v">+{totalStats.hp}</span>
+              <div className="attr-grid">
+                {attributeRows.map((row) => (
+                  <div key={row.id} className="stat-row">
+                    <span>{row.label}</span>
+                    <span className="v">
+                      {row.value}
+                      {row.percent ? '%' : ''}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
-            <div>
+            <div className="profile-attrs-block">
               <div className="section-label">{t('profile.affixes')}</div>
               <div className="affix-line">
                 {Object.values(player?.equipment ?? {})

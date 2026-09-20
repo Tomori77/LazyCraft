@@ -2,15 +2,26 @@
  * 玩家信息聚合纯函数单测（task-26 核心验收：契约形状 + 脏存档容忍）。
  */
 
-import { describe, expect, it } from 'vitest';
-import { buildCoreSnapshot, levelFromExp } from '@lazycraft/shared';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  ATTRIBUTE_IDS,
+  buildCoreSnapshot,
+  levelFromExp,
+  registerLevelCalculator,
+  resetLevelCalculator,
+} from '@lazycraft/shared';
 import { equipment, stack, v3Data } from '../../test/save-fixtures.js';
 import {
   buildEquipmentSlots,
+  buildPlayerAttributes,
   buildPlayerData,
   buildSkillLevels,
   readPlayerLevel,
 } from './player-shape.js';
+
+afterEach(() => {
+  resetLevelCalculator();
+});
 
 const snapshot = buildCoreSnapshot();
 const SKILL_IDS = snapshot.skills.map((s) => s.id);
@@ -84,8 +95,52 @@ describe('buildEquipmentSlots', () => {
   });
 });
 
+describe('buildPlayerAttributes', () => {
+  it('由攻击等级派生 hp/攻击，并叠加装备 final_stats', () => {
+    const sword = equipment({ slot: 'main_hand', final_stats: { attack: 2, defense: 0, hp: 0 } });
+    // attack exp=1000 → 10 级：hp=12+20=32, attack=10
+    const attrs = buildPlayerAttributes({ attack: { exp: 1000 } }, { main_hand: sword });
+
+    expect(attrs[ATTRIBUTE_IDS.HP]).toBe(32);
+    expect(attrs[ATTRIBUTE_IDS.ATTACK]).toBe(12);
+    expect(attrs[ATTRIBUTE_IDS.DEFENSE]).toBe(0);
+    expect(attrs[ATTRIBUTE_IDS.ACCURACY]).toBe(100);
+    expect(attrs[ATTRIBUTE_IDS.CRIT_DAMAGE]).toBe(100);
+  });
+
+  it('脏槽位（null / 非对象 / 缺 final_stats）不参与聚合且不崩', () => {
+    const attrs = buildPlayerAttributes({}, {
+      head: null,
+      neck: 'oops',
+      main_hand: { kind: 'equipment', uid: 'x' },
+      chest: [],
+    } as unknown as Record<string, unknown>);
+    expect(attrs[ATTRIBUTE_IDS.HP]).toBe(14);
+    expect(attrs[ATTRIBUTE_IDS.ATTACK]).toBe(1);
+  });
+
+  it('可被等级计算器消费：替换为"总等级"后 buildPlayerData.level 跟着变', () => {
+    const player = buildPlayerData(
+      'p',
+      snapshot,
+      v3Data({ skills: { attack: { exp: 27 }, mining: { exp: 27 } } }),
+    );
+    expect(player.level).toBe(3); // 默认 = 攻击技能等级
+
+    registerLevelCalculator((skills) => Object.values(skills).reduce((a, b) => a + b, 0));
+    const replaced = buildPlayerData(
+      'p',
+      snapshot,
+      v3Data({ skills: { attack: { exp: 27 }, mining: { exp: 27 } } }),
+    );
+    // 攻击 3 级 + 采矿 3 级 + 其余技能各 1 级（快照骨架全覆盖）
+    expect(replaced.level).toBeGreaterThan(3);
+    expect(replaced.level).toBe(player.skills.attack.level + player.skills.mining.level + (SKILL_IDS.length - 2));
+  });
+});
+
 describe('buildPlayerData', () => {
-  it('组装完整契约：技能 map / 槽位 map / 容器 / 容量', () => {
+  it('组装完整契约：技能 map / 属性 / 槽位 map / 容器 / 容量', () => {
     const sword = equipment({ slot: 'main_hand' });
     const data = v3Data({
       skills: { attack: { exp: 1728 } },
@@ -100,6 +155,10 @@ describe('buildPlayerData', () => {
     expect(player.name).toBe('player-abc12345');
     expect(player.level).toBe(12);
     expect(player.skills.attack).toEqual({ exp: 1728, level: 12 });
+    // 属性：12 级攻击 → hp=12+24=36，攻击=12+装备 2=14
+    expect(player.attributes[ATTRIBUTE_IDS.HP]).toBe(36);
+    expect(player.attributes[ATTRIBUTE_IDS.ATTACK]).toBe(14);
+    expect(player.attributes[ATTRIBUTE_IDS.ACCURACY]).toBe(100);
     expect(player.abstract_resources).toEqual({ gold: 12 });
     expect(player.equipment.main_hand).toBe(sword);
     expect(player.inventory).toEqual([sword, data.inventory[1]]);

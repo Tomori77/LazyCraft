@@ -9,13 +9,18 @@
  *   5. 时间推进遵守"到 now 为止"，不越权推演未来回合
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ATTRIBUTE_IDS } from '../attributes/index.js';
 import {
   PLAYER_ATTACK_INTERVAL_MS,
   PLAYER_BASE_HP,
   PLAYER_HP_PER_LEVEL,
+  combatantStatsFromAttributes,
   enemyStats,
+  playerAttributes,
   playerStats,
+  registerCombatFormulas,
+  resetCombatFormulas,
   simulateCombat,
   type CombatLogEntry,
 } from './index.js';
@@ -40,6 +45,127 @@ describe('playerStats', () => {
     expect(equipped.attack).toBe(3);
     expect(equipped.defense).toBe(1);
     expect(equipped.max_hp).toBe(LVL1_PLAYER.max_hp + 1);
+  });
+});
+
+afterEach(() => {
+  resetCombatFormulas();
+});
+
+describe('playerAttributes - 默认属性下与旧面板等价（回归保护）', () => {
+  it('无装备时收窄结果 = 旧 playerStats', () => {
+    const attrs = playerAttributes(0, { attack: 0, defense: 0, hp: 0 });
+    const stats = combatantStatsFromAttributes(attrs);
+    expect(stats).toEqual(playerStats(0, { attack: 0, defense: 0, hp: 0 }));
+    // 生命/攻击分别落到对应属性 id
+    expect(attrs[ATTRIBUTE_IDS.HP]).toBe(PLAYER_BASE_HP + PLAYER_HP_PER_LEVEL);
+    expect(attrs[ATTRIBUTE_IDS.ATTACK]).toBe(1);
+  });
+
+  it('有装备时收窄结果 = 旧 playerStats（含负值钳制）', () => {
+    const equipment = { attack: 2, defense: 1, hp: 3 };
+    const attrs = playerAttributes(0, equipment);
+    expect(combatantStatsFromAttributes(attrs)).toEqual(playerStats(0, equipment));
+
+    // 旧口径：装备负攻击/负 hp 只被 max(0, ·) 吃掉，不扣等级派生值
+    const negative = { attack: -5, defense: -3, hp: -9 };
+    expect(combatantStatsFromAttributes(playerAttributes(0, negative))).toEqual(
+      playerStats(0, negative),
+    );
+  });
+
+  it('补齐本体全集：命中 100 / 暴击伤害 100 / 其余 0', () => {
+    const attrs = playerAttributes(0, { attack: 0, defense: 0, hp: 0 });
+    expect(attrs[ATTRIBUTE_IDS.ACCURACY]).toBe(100);
+    expect(attrs[ATTRIBUTE_IDS.CRIT_DAMAGE]).toBe(100);
+    expect(attrs[ATTRIBUTE_IDS.CRIT_CHANCE]).toBe(0);
+    expect(attrs[ATTRIBUTE_IDS.DAMAGE_REDUCTION]).toBe(0);
+    expect(attrs[ATTRIBUTE_IDS.EVASION_MELEE]).toBe(0);
+  });
+
+  it('extras（DLC 来源）可提升任意属性，包括 hp/攻击', () => {
+    const attrs = playerAttributes(0, { attack: 0, defense: 0, hp: 0 }, [
+      { [ATTRIBUTE_IDS.CRIT_CHANCE]: 15, [ATTRIBUTE_IDS.HP]: 5, [ATTRIBUTE_IDS.ATTACK]: 2 },
+    ]);
+    expect(attrs[ATTRIBUTE_IDS.CRIT_CHANCE]).toBe(15);
+    expect(attrs[ATTRIBUTE_IDS.HP]).toBe(PLAYER_BASE_HP + PLAYER_HP_PER_LEVEL + 5);
+    expect(attrs[ATTRIBUTE_IDS.ATTACK]).toBe(3);
+  });
+});
+
+describe('simulateCombat - 新属性默认中性（与旧结果逐位一致）', () => {
+  it('传入默认/全新属性时战报与不传属性时完全相同', () => {
+    const startedAt = 0;
+    const attrs = playerAttributes(0, { attack: 0, defense: 0, hp: 0 });
+    const withAttrs = simulateCombat({
+      started_at: startedAt,
+      now: startedAt + 20_000,
+      player: combatantStatsFromAttributes(attrs),
+      player_attributes: attrs,
+      enemy: ENEMY_CHICKEN,
+      food: {},
+      rng: zeroRng,
+    });
+    const legacy = simulateCombat({
+      started_at: startedAt,
+      now: startedAt + 20_000,
+      player: LVL1_PLAYER,
+      enemy: ENEMY_CHICKEN,
+      food: {},
+      rng: zeroRng,
+    });
+    expect(withAttrs).toEqual(legacy);
+  });
+
+  it('新属性生效示例：命中率 0 时玩家打不中（DLC 可覆写口径）', () => {
+    const startedAt = 0;
+    const attrs = {
+      ...playerAttributes(0, { attack: 0, defense: 0, hp: 0 }),
+      [ATTRIBUTE_IDS.ACCURACY]: 0,
+    };
+    const report = simulateCombat({
+      started_at: startedAt,
+      now: startedAt + PLAYER_ATTACK_INTERVAL_MS + 1,
+      player: combatantStatsFromAttributes(attrs),
+      player_attributes: attrs,
+      enemy: ENEMY_CHICKEN,
+      food: {},
+      rng: () => 0.99,
+    });
+    expect(report.log[0].actor).toBe('player');
+    expect(report.log[0].damage).toBe(0);
+  });
+});
+
+describe('registerCombatFormulas - DLC 覆写点', () => {
+  it('覆写 playerStats 后 playerStats() 走新实现，恢复后还原', () => {
+    const undo = registerCombatFormulas({
+      playerStats: () => ({ max_hp: 999, attack: 42, defense: 7, interval_ms: 1000 }),
+    });
+    expect(playerStats(0, { attack: 0, defense: 0, hp: 0 })).toEqual({
+      max_hp: 999,
+      attack: 42,
+      defense: 7,
+      interval_ms: 1000,
+    });
+    undo();
+    expect(playerStats(0, { attack: 0, defense: 0, hp: 0 })).toEqual(LVL1_PLAYER);
+  });
+
+  it('覆写 resolveDamage 后战斗伤害走新公式', () => {
+    // 一个"翻倍伤害"的 DLC 公式
+    registerCombatFormulas({ resolveDamage: (ctx) => ctx.base_damage * 2 });
+    const report = simulateCombat({
+      started_at: 0,
+      now: PLAYER_ATTACK_INTERVAL_MS + 1,
+      player: LVL1_PLAYER,
+      enemy: ENEMY_CHICKEN,
+      food: {},
+      rng: zeroRng,
+    });
+    // 玩家 1 攻 → 翻倍后 2 伤；鸡 5 HP 不会被一击秒
+    expect(report.log[0].damage).toBe(2);
+    expect(report.end.kind).toBe('fighting');
   });
 });
 

@@ -4,7 +4,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { randomUUID } from 'node:crypto';
-import { buildCoreSnapshot, levelFromExp } from '@lazycraft/shared';
+import { buildCoreSnapshot, levelFromExp, playerAttributes, sumEquipmentStats } from '@lazycraft/shared';
 import { AppModule } from './../src/app.module.js';
 import { CURRENT_SAVE_VERSION, DEFAULT_INVENTORY_CAPACITY, DEFAULT_STORAGE_CAPACITY, type SaveDataV3 } from './../src/save/save-shape.js';
 import { equipment, stack, v3Data } from './save-fixtures.js';
@@ -14,6 +14,7 @@ let app: INestApplication<App>;
 const snapshot = buildCoreSnapshot();
 const SKILL_IDS = snapshot.skills.map((s) => s.id);
 const SLOT_IDS = snapshot.equipmentSlots.map((s) => s.id);
+const ATTRIBUTE_IDS_EXPECTED = snapshot.attributes.map((a) => a.id);
 
 beforeAll(async () => {
   const moduleFixture = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -70,6 +71,30 @@ describe('/api/player (e2e)', () => {
     expect(typeof body.name).toBe('string');
     expect(body.level).toBe(1);
 
+    // task-34：属性全集必须存在，含 P4-5 要求的新属性
+    expect(Object.keys(body.attributes).sort()).toEqual([...ATTRIBUTE_IDS_EXPECTED].sort());
+    for (const id of [
+      'hp',
+      'mp',
+      'defense',
+      'damage_reduction',
+      'evasion_melee',
+      'evasion_ranged',
+      'evasion_magic',
+      'accuracy',
+      'max_hit',
+      'min_hit',
+      'crit_chance',
+      'crit_damage',
+    ]) {
+      expect(typeof body.attributes[id]).toBe('number');
+    }
+    // 1 级空手：hp=12+2=14、攻击=1、命中 100、暴击伤害 100
+    expect(body.attributes.hp).toBe(14);
+    expect(body.attributes.attack).toBe(1);
+    expect(body.attributes.accuracy).toBe(100);
+    expect(body.attributes.crit_damage).toBe(100);
+
     expect(Object.keys(body.skills).sort()).toEqual([...SKILL_IDS].sort());
     for (const id of SKILL_IDS) {
       expect(body.skills[id]).toEqual({ exp: 0, level: 1 });
@@ -120,6 +145,13 @@ describe('/api/player (e2e)', () => {
     expect(body.skills.fishing).toEqual({ exp: 0, level: 1 });
 
     expect(body.abstract_resources).toEqual({ gold: 1234, res_wood: 56 });
+
+    // 属性与装备/等级联动：12 级攻击 + 短剑(+2 攻) → hp=12+24=36、攻击=12+2=14
+    expect(body.attributes.hp).toBe(36);
+    expect(body.attributes.attack).toBe(14);
+    expect(body.attributes).toEqual(
+      playerAttributes(attackExp, sumEquipmentStats([sword])),
+    );
 
     // 装备实例原样返回
     expect(body.equipment.main_hand).toMatchObject({

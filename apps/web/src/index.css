@@ -1141,20 +1141,35 @@ select {
 
 .profile-attrs {
   border-top: 1px solid var(--line);
-  padding: 13px 16px 15px;
+  padding: 11px 16px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  /* 属性从 3 条扩到全集后可能超出右下半区：内部滚动兜底，
+     不撑高整页（P2-4：个人信息页本身不出现竖向滚动） */
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.profile-attrs-block {
+  min-width: 0;
+}
+
+/* 属性行两列排布：13 条属性在右下半区也能一屏放下 */
+.attr-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  min-height: 0;
-  overflow: hidden;
+  column-gap: 18px;
 }
 
 .stat-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 13px;
-  padding: 7px 0;
+  gap: 6px;
+  font-size: 12.5px;
+  padding: 4px 0;
   border-bottom: 1px solid var(--line);
 }
 

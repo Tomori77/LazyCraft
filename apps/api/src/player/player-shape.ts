@@ -12,10 +12,14 @@
  */
 
 import {
+  calculatePersonLevel,
   levelFromExp,
+  playerAttributes,
+  sumEquipmentStats,
   type CarriedItem,
   type ContentSnapshot,
   type EquipmentInstance,
+  type PlayerAttributes,
 } from '@lazycraft/shared';
 import {
   DEFAULT_INVENTORY_CAPACITY,
@@ -23,8 +27,9 @@ import {
   type SaveDataV3,
 } from '../save/save-shape.js';
 
-/** 玩家等级口径：攻击技能等级。与 inventory / shop / combat 的 PLAYER_LEVEL_SKILL 保持一致，
- *  避免个人信息面板出现"第二套等级轴"（见 04 §3.2 与 task-26 已定口径）。 */
+/** 玩家等级口径：默认计算器使用攻击技能等级，与 inventory / shop / combat 的 PLAYER_LEVEL_SKILL 一致，
+ *  避免个人信息面板出现"第二套等级轴"（见 04 §3.2 与 task-26 已定口径）。
+ *  注意：这只是"默认实现"的技能 id；实际等级由可替换的等级计算器给出（task-34）。 */
 export const PLAYER_LEVEL_SKILL = 'attack';
 
 export interface PlayerSkillProgress {
@@ -37,6 +42,8 @@ export interface PlayerData {
   name: string;
   level: number;
   skills: Record<string, PlayerSkillProgress>;
+  /** 最终人物属性（task-34）：属性 id → 数值，含装备与派生基础值 */
+  attributes: PlayerAttributes;
   abstract_resources: Record<string, number>;
   equipment: Record<string, EquipmentInstance | null>;
   inventory: CarriedItem[];
@@ -86,9 +93,33 @@ export function buildSkillLevels(
   return levels;
 }
 
-/** 玩家等级 = 攻击技能等级（攻击无记录即 1 级） */
+/** 玩家等级 = 攻击技能等级（保留旧的直接读取口径；buildPlayerData 已改走计算器） */
 export function readPlayerLevel(rawSkills: unknown): number {
   return levelFromExp(skillExpOf(rawSkills, PLAYER_LEVEL_SKILL));
+}
+
+/** 从存档读技能经验，用于派生属性（攻击等级影响生命/攻击） */
+function attackExpOf(rawSkills: unknown): number {
+  return skillExpOf(rawSkills, PLAYER_LEVEL_SKILL);
+}
+
+/**
+ * 从存档聚合人物最终属性（task-34）。
+ *
+ * 装备经 sumEquipmentStats 汇总成旧三元组后交给 playerAttributes，
+ * 与 combat.service 走同一套聚合，保证"面板显示的属性 = 战斗实际用的属性"。
+ */
+export function buildPlayerAttributes(
+  rawSkills: unknown,
+  rawEquipment: unknown,
+): PlayerAttributes {
+  const equipped = asRecord(rawEquipment);
+  // 复用 asEquippedInstance 的脏值过滤：非对象/缺 final_stats 的槽位不参与聚合
+  const valid = Object.values(equipped)
+    .map(asEquippedInstance)
+    .filter((value): value is EquipmentInstance => value !== null);
+  const equipmentStats = sumEquipmentStats(valid);
+  return playerAttributes(attackExpOf(rawSkills), equipmentStats);
 }
 
 /** 脏槽位归一：与 combat.service.readEquipped 同策略——非对象 / 缺 final_stats 按空槽 */
@@ -135,13 +166,18 @@ export function buildPlayerData(
 ): PlayerData {
   const inventory = asItems(data.inventory);
   const storage = asItems(data.storage);
+  const skillIds = snapshot.skills.map((skill) => skill.id);
+  const skills = buildSkillLevels(skillIds, data.skills);
+  const attributes = buildPlayerAttributes(data.skills, data.equipment);
+  // 等级走可替换计算器（task-34）：默认 = 攻击技能等级；DLC 可覆写为战斗等级/总等级
+  const skillLevelMap: Record<string, number> = {};
+  for (const [id, progress] of Object.entries(skills)) skillLevelMap[id] = progress.level;
+
   return {
     name,
-    level: readPlayerLevel(data.skills),
-    skills: buildSkillLevels(
-      snapshot.skills.map((skill) => skill.id),
-      data.skills,
-    ),
+    level: calculatePersonLevel(skillLevelMap, attributes),
+    skills,
+    attributes,
     abstract_resources: asRecord(data.abstract_resources) as Record<string, number>,
     equipment: buildEquipmentSlots(
       snapshot.equipmentSlots.map((slot) => slot.id),

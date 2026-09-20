@@ -7,11 +7,12 @@ import { Prisma } from '../lib/prisma-client/client.js';
 import {
   FOODS,
   addStacksToCarried,
+  combatantStatsFromAttributes,
   findEnemyById,
   findFoodById,
   findLootTableById,
   newUid,
-  playerStats,
+  playerAttributes,
   simulateCombat,
   sumEquipmentStats,
   toEquipmentInstance,
@@ -169,6 +170,10 @@ export class CombatService {
     const equipped = this.readEquipped(data);
     const equipmentStats = sumEquipmentStats(equipped);
 
+    // task-34：玩家属性走"聚合 → 收窄"两步；默认属性下收窄结果与旧 playerStats 等价。
+    // 同时把整张属性表传给模拟器：新维度（命中/暴击/减伤等）默认中性，不改变旧结果。
+    const attributes = playerAttributes(attackExp, equipmentStats);
+
     // 食物存量：只遍历堆叠实例，把"在 FOODS 表里登记过的物品"聚成 food map
     const inventory = Array.isArray(data.inventory) ? (data.inventory as CarriedItem[]) : [];
     const food: Record<string, number> = {};
@@ -181,9 +186,10 @@ export class CombatService {
     return simulateCombat({
       started_at: startedAt,
       now,
-      player: playerStats(attackExp, equipmentStats),
+      player: combatantStatsFromAttributes(attributes),
       enemy,
       food,
+      player_attributes: attributes,
     });
   }
 
