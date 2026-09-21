@@ -1,39 +1,48 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth/auth.tsx';
 import { useT } from '../i18n/index.ts';
+import { useContent } from '../content/content-context.tsx';
 import {
   fetchPackImpact,
   fetchPacks,
+  reloadPacks,
   updatePackEnabled,
   type AdminPack,
+  type ContentReloadResult,
   type PackImpact,
 } from './content-api.ts';
 
 /**
- * 管理后台「内容」页签（task-41）。
+ * 管理后台「内容」页签（task-41 / task-42）。
  *
  * 语义：**只启停已编译进来的 pack**（方案 b），不做内容入库。
- * 开关写库后**重启 API 才生效**——这是后端已定决策（快照进程内只建一次，
- * 不做热重载）。因此本页把"重启后生效"作为一等公民展示：
- *   - 每行用 `restart_required`（后端给的"落盘值 ≠ 当前进程生效值"）标出待重启状态；
- *   - 切换成功后弹一条"需重启"的提示条，而不是假装已经生效。
+ * 开关写库后**不自动换内存快照**，需管理员点「应用重载」一次性生效——
+ * 这对应后端的显式重载（task-42）：`POST /api/admin/content/reload` 会重建快照
+ * 并中断引用已停用内容的玩家动作。因此本页把"待应用"作为一等公民展示：
+ *   - 每行用 `restart_required`（后端给的"落盘值 ≠ 当前生效值"）标出待应用状态；
+ *   - 切换成功后弹一条"需点应用重载"的提示条，而不是假装已经生效。
  *
  * 停用警告：调 `GET :id/impact` 拿到"仍引用该包动作的存档数"，在确认框里展示，
- * 提醒管理员"现在停用、重启后，这些挂机中的玩家会因动作缺失而停止"。
+ * 提醒管理员"应用重载后，这些挂机中的玩家动作会被中断"。
  * 前端**只读**这个统计，不提供、也不触发任何玩家数据修改。
  */
 export function ContentAdminTab() {
   const { t } = useT();
   const { token } = useAuth();
+  // 重载成功后刷新内容快照，让管理员自己的游戏视图立即同步（否则要等刷新页面）
+  const { refreshContent } = useContent();
 
   const [packs, setPacks] = useState<AdminPack[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 切换成功后的提示（含"重启后生效"）；与 error 分开，避免把成功当失败样式
+  // 切换成功后的提示（含"需应用重载"）；与 error 分开，避免把成功当失败样式
   const [notice, setNotice] = useState<string | null>(null);
   // 停用确认：待停用的 pack + 只读影响面
   const [confirming, setConfirming] = useState<AdminPack | null>(null);
   const [impact, setImpact] = useState<PackImpact | null>(null);
+  // 重载进行中/结果：结果一次展示到位（启用集合、校验错误、影响面、被中断动作）
+  const [reloading, setReloading] = useState(false);
+  const [reloadResult, setReloadResult] = useState<ContentReloadResult | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -52,14 +61,15 @@ export function ContentAdminTab() {
     void load();
   }, [load]);
 
-  /** 启用：直接调接口（无破坏性），成功后提示重启 */
+  /** 启用：直接调接口（无破坏性），成功后提示需应用重载 */
   const enable = async (pack: AdminPack) => {
     if (!token) return;
     setError(null);
     setNotice(null);
+    setReloadResult(null);
     try {
       await updatePackEnabled(token, pack.id, true);
-      setNotice(t('admin.content.toggled_restart'));
+      setNotice(t('admin.content.toggled_pending'));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('admin.content.save_failed'));
@@ -84,33 +94,87 @@ export function ContentAdminTab() {
   const confirmDisable = async () => {
     if (!token || !confirming) return;
     setError(null);
+    setReloadResult(null);
     try {
       await updatePackEnabled(token, confirming.id, false);
       setConfirming(null);
       setImpact(null);
-      setNotice(t('admin.content.toggled_restart'));
+      setNotice(t('admin.content.toggled_pending'));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('admin.content.save_failed'));
     }
   };
 
+  /** 应用重载：换服务端快照 + 中断引用被停用内容的动作；成功后同步本页与游戏视图 */
+  const applyReload = async () => {
+    if (!token || reloading) return;
+    setReloading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await reloadPacks(token);
+      setReloadResult(result);
+      setPacks(result.packs);
+      // 让管理员自己的玩家视图立即用新内容集合（技能/动作列表已变）
+      await refreshContent();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('admin.content.reload_failed'));
+    } finally {
+      setReloading(false);
+    }
+  };
+
   return (
     <div className="admin-content">
       <div className="admin-toolbar">
-        <span className="admin-readonly">{t('admin.content.restart_hint')}</span>
-        <button
-          type="button"
-          className="btn ghost btn-sm"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          {t('admin.content.refresh')}
-        </button>
+        <span className="admin-readonly">{t('admin.content.reload_hint')}</span>
+        <div className="admin-toolbar-actions">
+          {/* 应用重载：把落盘开关一次性应用到运行中的内容快照 */}
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => void applyReload()}
+            disabled={reloading}
+          >
+            {reloading ? t('admin.content.reloading') : t('admin.content.reload')}
+          </button>
+          <button
+            type="button"
+            className="btn ghost btn-sm"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            {t('admin.content.refresh')}
+          </button>
+        </div>
       </div>
 
       {error && <p className="shop-error">{error}</p>}
       {notice && <p className="admin-content-notice">{notice}</p>}
+      {reloadResult && (
+        <div className="admin-content-notice">
+          <p>{t('admin.content.reload_done')}</p>
+          <p>
+            {t('admin.content.reload_enabled')}:{' '}
+            <span className="admin-mono">
+              {reloadResult.enabled_packs.length > 0
+                ? reloadResult.enabled_packs.join(', ')
+                : t('admin.content.reload_none')}
+            </span>
+          </p>
+          <p>
+            {t('admin.content.reload_errors')}: {reloadResult.validate_errors} ·{' '}
+            {t('admin.content.reload_affected')}: {reloadResult.affected_players}
+          </p>
+          {reloadResult.interrupted_actions.length > 0 && (
+            <p>
+              {t('admin.content.reload_interrupted')}:{' '}
+              <span className="admin-mono">{reloadResult.interrupted_actions.join(', ')}</span>
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="admin-content-list">
         {packs.map((pack) => (
@@ -190,8 +254,8 @@ interface DisableConfirmProps {
  * 停用二次确认。
  *
  * 为什么必须有这一步？
- *   停用 pack 后重启，已有存档里引用的动作/物品会"查无此内容"，
- *   正在挂机的玩家会因此停下。管理动作不可逆地影响玩家体验，
+ *   停用 pack 后应用重载，已有存档里引用的动作/物品会"查无此内容"，
+ *   正在挂机的玩家动作会被中断。管理动作不可逆地影响玩家体验，
  *   必须在执行前把影响规模摆出来，并明确"不会自动清洗玩家数据"。
  */
 function DisableConfirm({ pack, impact, onCancel, onConfirm }: DisableConfirmProps) {

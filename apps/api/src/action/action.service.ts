@@ -481,6 +481,116 @@ export class ActionService {
   }
 
   /* ---------------------------------------------------------------- */
+  /* 内容重载时中断引用已停用内容的动作（task-42）                         */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * 中断所有"当前动作 / 队列项引用了给定动作 id"的存档。
+   *
+   * 为什么放在 ActionService 而不是 admin 侧？
+   *   写存档的 CAS 范式（条件 updateMany + 期望 current_action）只有这里有一套；
+   *   在管理服务里复制一份，等于让"改存档必须条件写"这条铁律出现第二个实现，
+   *   将来任一处改动就会分叉。把它做成受控 public 方法，admin 只负责"给动作 id 列表 + 记审计"。
+   *
+   * 为什么用 read → 计算 → CAS 而不是一条 SQL 直接改 JSONB？
+   *   清除规则（队首/队列行的取舍、清空后 current_action 置 null）是**领域规则**，
+   *   用 TS 表达比写一段 JSONB 拼接 SQL 更可读、更不易错；CAS 保证并发安全。
+   *
+   * 扫描范围：调用方传入的 actionIds 已是"当前所有已停用 pack 的动作全集"，
+   *   因此本方法本身是幂等的——重复调用同一份集合不会漏掉中断残留。
+   *
+   * 性能：先用 DB 侧 JSONB 查询**只定位**受影响存档（不把 data 拉回 Node），
+   *   再逐条走一次 CAS 写。受影响量通常远小于全表。
+   */
+  async interruptActionsReferencing(
+    actionIds: string[],
+  ): Promise<{ affectedPlayers: number; interruptedActions: string[] }> {
+    if (actionIds.length === 0) return { affectedPlayers: 0, interruptedActions: [] };
+    const target = new Set(actionIds);
+
+    // 只取存档 id（定位），data 在逐条 CAS 前再读——避免把大 JSONB 全量搬进内存
+    const rows = await this.saveService.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id
+         FROM saves
+        WHERE (data -> 'current_action' ->> 'action_id') = ANY($1::text[])
+           OR EXISTS (
+                SELECT 1
+                  FROM jsonb_array_elements(COALESCE(data -> 'action_queue', '[]'::jsonb)) AS q
+                 WHERE q ->> 'action_id' = ANY($1::text[])
+              )`,
+      actionIds,
+    );
+
+    const interrupted = new Set<string>();
+    for (const row of rows) {
+      await this.interruptOneSave(row.id, target, interrupted);
+    }
+
+    return { affectedPlayers: rows.length, interruptedActions: [...interrupted].sort() };
+  }
+
+  /**
+   * 对单份存档执行中断：只删"引用停用动作"的 current_action 与队列行，
+   * 其它字段（背包/技能/资源/装备）一律原样保留。
+   *
+   * 为什么用 save.id 作为 CAS 定位而不是 accountId？
+   *   interruptActionsReferencing 是"按存档定位"的批量操作（可能一份账号多角色），
+   *   这里按主键精确定位，不再经 accountId 反查玩家。
+   */
+  private async interruptOneSave(
+    saveId: string,
+    target: ReadonlySet<string>,
+    interrupted: Set<string>,
+  ): Promise<void> {
+    const save = await this.saveService.prisma.save.findUnique({
+      where: { id: saveId },
+      select: { data: true },
+    });
+    if (!save) return;
+    const data = save.data as unknown as SaveData;
+
+    const current = data.current_action as ActiveActionData | null;
+    const queue = this.readQueue(data);
+    const currentHit = current !== null && target.has(current.action_id);
+    const keptQueue = queue.filter((item) => !target.has(item.action_id));
+    const queueHit = keptQueue.length !== queue.length;
+    if (!currentHit && !queueHit) return;
+
+    // 记录被中断的动作 id（含队列行），供响应/审计诊断
+    if (currentHit && current) interrupted.add(current.action_id);
+    for (const item of queue) {
+      if (target.has(item.action_id)) interrupted.add(item.action_id);
+    }
+
+    // 只清"被停用动作"：队列剩余项原样保留。若清空后无 current 且队列非空，
+    // current_action 置 null 即可——既有 settle-due 的"空闲即起跑"会接续队首，
+    // 保持"队首 = current_action"这一既有不变量。
+    const nextData: SaveData = {
+      ...data,
+      current_action: currentHit ? null : current,
+      action_queue: keptQueue,
+    };
+    // 条件写入：把"读到的 current_action"写进 WHERE（与 compareAndSwapCurrentAction 同一范式），
+    // 若玩家在此期间恰好改过动作，本次 count=0 → 跳过，交由下一轮重载/结算处理，绝不覆盖新状态。
+    const result = await this.saveService.prisma.save.updateMany({
+      where: {
+        id: saveId,
+        ...(current === null
+          ? { data: { path: ['current_action'], equals: Prisma.JsonNull } }
+          : {
+              data: {
+                path: ['current_action'],
+                equals: current as unknown as Prisma.InputJsonValue,
+              },
+            }),
+      },
+      data: { data: nextData as unknown as Prisma.InputJsonValue },
+    });
+    // count=0 = 存档已消失或 current_action 已被并发改动，静默跳过即可（幂等）
+    if (result.count === 0) return;
+  }
+
+  /* ---------------------------------------------------------------- */
   /* 内部工具                                                          */
   /* ---------------------------------------------------------------- */
 

@@ -2015,6 +2015,12 @@ select {
   flex-wrap: wrap;
 }
 
+.admin-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .admin-filter {
   display: flex;
   gap: 8px;
@@ -2795,6 +2801,15 @@ select {
   font-size: 12.5px;
 }
 
+/* 重载结果块由多条 <p> 组成，压掉默认段间距避免撑高 */
+.admin-content-notice p {
+  margin: 0 0 2px;
+}
+
+.admin-content-notice p:last-child {
+  margin-bottom: 0;
+}
+
 .admin-content-list {
   flex: 1;
   min-height: 0;
@@ -2825,7 +2840,7 @@ select {
   background: var(--paper-3);
 }
 
-/* 待重启：开关值与进程生效值不一致，用虚线边强调"还需一步才生效" */
+/* 待应用重载：开关值与进程生效值不一致，用虚线边强调"还需一步才生效" */
 .admin-content-pack.is-pending {
   border-style: dashed;
 }
