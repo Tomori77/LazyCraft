@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { BUILTIN_PACKS } from '@lazycraft/shared';
 import { PrismaClient } from '../lib/prisma-client/client.js';
 
 /**
@@ -14,27 +13,34 @@ import { PrismaClient } from '../lib/prisma-client/client.js';
  * 默认语义：**表里没有记录的 pack 视为启用**。
  *   保证首次部署 / 新编译进来的 pack 不因缺行被意外停用。
  *   显式写 false 才会停用；显式写 true 会落一行，语义与缺行等价但更可查。
+ *
+ * task-43 起本服务只提供"DB 里的原始事实"，不再自己与 pack 清单求交：
+ *   可启停集合变成运行时的"内置 + 外部 DLC"，若这里再读静态清单过滤，
+ *   外部 DLC 的停用会被静默丢掉。求交由持有目录/快照的 ContentService 做。
  */
 @Injectable()
 export class ContentPackStateService {
   constructor(private readonly prisma: PrismaClient) {}
 
   /**
-   * 读取"启用集合"：只在 DB 里显式标了 enabled=false 的 pack 被排除。
+   * 被 DB 显式停用的 pack id 集合（原始事实，不做任何清单过滤）。
    *
-   * 为什么返回 BUILTIN_PACKS 里存在的 id，而不是 DB 里所有行？
-   *   表里可能有历史遗留的、已从编译产物移除的 pack id；把它们当启用集合
-   *   传给注册逻辑没有意义（注册时会被清单过滤掉），但会影响日志可读性。
+   * 为什么给"停用集合"而不是"启用集合"？
+   *   缺行 = 启用，所以"启用集合"必须由一个可用 pack 清单反推；而本服务
+   *   不知道运行时有哪些 pack（内置 + 外部 DLC 在 ContentService 手里）。
+   *   返回停用集合后，ContentService 只需 `available.filter(不在停用集)`,
+   *   既不需要反向注入，也不会漏掉任何外部 pack。
    */
-  async enabledPackIds(): Promise<string[]> {
+  async disabledPackIds(): Promise<Set<string>> {
     const rows = await this.prisma.contentPackState.findMany();
-    const disabled = new Set(rows.filter((row) => !row.enabled).map((row) => row.id));
-    return BUILTIN_PACKS.filter((pack) => !disabled.has(pack.id)).map((pack) => pack.id);
+    return new Set(rows.filter((row) => !row.enabled).map((row) => row.id));
   }
 
   /** 单个 pack 是否启用（缺行 = 启用） */
   async isEnabled(packId: string): Promise<boolean> {
-    const row = await this.prisma.contentPackState.findUnique({ where: { id: packId } });
+    const row = await this.prisma.contentPackState.findUnique({
+      where: { id: packId },
+    });
     return row?.enabled ?? true;
   }
 

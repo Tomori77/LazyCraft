@@ -17,6 +17,7 @@ import type {
   AttributeDefinition,
   Content,
   ContentKind,
+  ContentPack,
   EquipmentSlotMeta,
   IconDef,
   Item,
@@ -58,16 +59,24 @@ export interface ContentSnapshot {
  *   这里只负责"注册 + 如实报告"。
  *
  * 启用集合（task-41）：
- *   传 `enabledIds` 时只注册 `BUILTIN_PACKS` 中命中的包；
+ *   传 `enabledIds` 时只注册 `packs` 中命中的包；
  *   **省略参数 = 全部启用**（保持既有调用点行为不变，向后兼容）。
  *   空数组 `[]` 是合法输入，表示一个包都不启用（用于测试/极端配置）。
+ *
+ * `packs`（task-43）：
+ *   默认 `BUILTIN_PACKS`，既有调用点与单测语义完全不变；
+ *   外部 DLC（apps/api 从挂载目录加载）由调用方把"内置 + 外部"的合并清单传进来，
+ *   使外部包与内置包走同一条注册路径（shared 保持纯逻辑，不碰 node:fs）。
  */
-export function createCoreRegistry(enabledIds?: readonly string[]): {
+export function createCoreRegistry(
+  enabledIds?: readonly string[],
+  packs: readonly ContentPack[] = BUILTIN_PACKS,
+): {
   registry: ContentRegistry;
   errors: string[];
 } {
   const registry = createRegistry();
-  for (const pack of selectEnabledPacks(BUILTIN_PACKS, enabledIds)) registry.register(pack);
+  for (const pack of selectEnabledPacks(packs, enabledIds)) registry.register(pack);
   const result = registry.validate();
   return { registry, errors: result.errors };
 }
@@ -77,8 +86,18 @@ function listOf<T extends Content>(registry: ContentRegistry, kind: ContentKind)
   return registry.list(kind) as T[];
 }
 
-/** 从 Registry 构造内容快照；纯函数，便于测试与后端复用 */
-export function buildContentSnapshot(registry: ContentRegistry): ContentSnapshot {
+/**
+ * 从 Registry 构造内容快照；纯函数，便于测试与后端复用。
+ *
+ * `packs`（task-43）：pack 元信息（name/version）的唯一来源。默认 `BUILTIN_PACKS`
+ * 保持既有调用点不变；外部 DLC 未注册进这份清单时，前端/管理页就看不到它的
+ * name/version（内容仍会出现在 skills/actions 里，但 packs[] 会缺行），
+ * 故 api 侧必须把"内置 + 外部"的合并清单传进来。
+ */
+export function buildContentSnapshot(
+  registry: ContentRegistry,
+  packs: readonly ContentPack[] = BUILTIN_PACKS,
+): ContentSnapshot {
   return {
     skills: listOf<Skill>(registry, 'skill'),
     actions: listOf<SkillAction>(registry, 'action'),
@@ -89,27 +108,32 @@ export function buildContentSnapshot(registry: ContentRegistry): ContentSnapshot
     attributes: listOf<AttributeDefinition>(registry, 'attribute'),
     // pack 元信息从"实际注册结果"反查清单，而不是另传一份启用集合：
     // 这样快照永远与 Registry 真实内容一致，不会出现"说启用了但没注册"的分叉。
-    packs: registeredPackInfos(registry),
+    packs: registeredPackInfos(registry, packs),
   };
 }
 
 /**
- * 实际注册进 Registry 的 pack 元信息（含 name/version，来自内置清单）。
+ * 实际注册进 Registry 的 pack 元信息（含 name/version，来自传入清单）。
  *
  * 为什么不在快照里列出"未启用的包"？
  *   快照的语义是"引擎此刻认识的内容"，未启用的包不属于此列；
  *   后台「内容」页要的完整清单 + 启停状态由管理 API 单独提供（它读 DB 状态）。
  */
-function registeredPackInfos(registry: ContentRegistry): PackInfo[] {
+function registeredPackInfos(
+  registry: ContentRegistry,
+  packs: readonly ContentPack[],
+): PackInfo[] {
   const registeredIds = new Set(
     registry.listPacks().map((entry) => entry.split('@')[0]),
   );
-  return BUILTIN_PACKS.filter((pack) => registeredIds.has(pack.id)).map((pack) => ({
-    id: pack.id,
-    name: pack.name,
-    version: pack.version,
-    enabled: true,
-  }));
+  return packs
+    .filter((pack) => registeredIds.has(pack.id))
+    .map((pack) => ({
+      id: pack.id,
+      name: pack.name,
+      version: pack.version,
+      enabled: true,
+    }));
 }
 
 /** 便捷：注册核心包并直接产出快照（后端 / 单测的单行入口） */

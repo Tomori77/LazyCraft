@@ -401,5 +401,10 @@
   "admin.content.impact_warning": "警告：有 {n} 份存档正引用该包的动作；应用重载后这些挂机动作会被中断。",
   "admin.content.affected_actions": "受影响动作",
   "admin.content.no_cleanup_hint": "停用不会删除或清洗任何玩家存档数据，恢复启用并应用重载后内容即回来。",
-  "admin.content.confirm_disable_title": "确认停用内容包"
+  "admin.content.confirm_disable_title": "确认停用内容包",
+  "admin.content.external_badge": "外部 DLC",
+  "admin.content.reload_load_errors": "DLC 加载失败",
+  "admin.content.dlc_errors_title": "加载失败的 DLC",
+  "admin.content.dlc_errors_dir": "扫描目录",
+  "admin.content.dlc_errors_hint": "以上 DLC 已被跳过，不影响服务运行；修正文件后点「应用重载」即可生效。DLC 只能由能写服务器挂载目录的运维放置，后台不提供上传/编辑入口。"
 }

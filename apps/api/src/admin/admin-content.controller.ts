@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/admin.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -7,13 +15,14 @@ import { AdminContentService } from './admin-content.service.js';
 import { UpdatePackStateDto } from './dto/admin-content.dto.js';
 
 /**
- * 内容包（DLC）管理 HTTP 接口（task-41 / task-42）。
+ * 内容包（DLC）管理 HTTP 接口（task-41 / task-42 / task-43）。
  *
  * 鉴权双 Guard：JwtAuthGuard 先鉴定身份（无 token → 401），
  * AdminGuard 再判角色（非 admin → 403）。
  *
  * 语义：PATCH 只翻转"落盘开关"，不自动换内存快照；`POST reload` 才按最新开关
- * 重建快照并中断引用已停用内容的动作（响应里的 `restart_required` 表示"待应用重载"）。
+ * 重建快照（并重扫挂载目录）且中断引用已停用内容的动作（响应里的 `restart_required`
+ * 表示"待应用重载"）。
  * 写操作把操作者 id 从 request.user 透传给 service 落审计，绝不由客户端参数指定。
  */
 @Controller('api/admin/content/packs')
@@ -45,21 +54,36 @@ export class AdminContentController {
 }
 
 /**
- * 内容重载接口（task-42）。
+ * 内容重载接口（task-42）+ 外部 DLC 加载失败查询（task-43）。
  *
  * 为什么单独一个 Controller 而不是挂在 packs 下？
  *   重载作用于**整个内容集合**（一次重载全部 pack 的启停结果），不是某个 pack 的子资源；
  *   路由 `POST /api/admin/content/reload` 表达的是"对 /api/admin/content 这个资源做动作"，
  *   语义比 `/packs/reload` 更准确，且不会与 `PATCH /packs/:id` 的路径参数产生歧义。
+ *
+ * 为什么 dlc-errors 不挂到 `/packs` 下？
+ *   它描述的是"挂载目录里加载失败的外部 DLC"，不是已登记 pack 的属性；
+ *   且必须**不改动** `GET /api/admin/content/packs` 的裸数组返回形态（既有 e2e 断言），
+ *   所以另开只读路由，而不是把错误塞进 packs 列表的响应包装里。
  */
 @Controller('api/admin/content')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminContentReloadController {
   constructor(private readonly adminContentService: AdminContentService) {}
 
-  /** 按最新落盘启用集合重建内存快照 + 中断引用已停用内容的动作 + 落审计 */
+  /** 按最新落盘启用集合重建内存快照 + 重扫挂载目录 + 中断引用已停用内容的动作 + 落审计 */
   @Post('reload')
   reload(@CurrentUser() user: { id: string }) {
     return this.adminContentService.reload(user.id);
+  }
+
+  /**
+   * 加载失败的外部 DLC 列表（只读，admin only）。
+   * 先重扫目录再返回，保证管理页拿到的是目录此刻的真实状态。
+   * 安全边界：只读；加载器不提供任何上传/编辑 DLC 的写接口。
+   */
+  @Get('dlc-errors')
+  dlcErrors() {
+    return this.adminContentService.dlcErrors();
   }
 }

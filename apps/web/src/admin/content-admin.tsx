@@ -3,12 +3,14 @@ import { useAuth } from '../auth/auth.tsx';
 import { useT } from '../i18n/index.ts';
 import { useContent } from '../content/content-context.tsx';
 import {
+  fetchDlcErrors,
   fetchPackImpact,
   fetchPacks,
   reloadPacks,
   updatePackEnabled,
   type AdminPack,
   type ContentReloadResult,
+  type DlcErrorReport,
   type PackImpact,
 } from './content-api.ts';
 
@@ -25,6 +27,9 @@ import {
  * 停用警告：调 `GET :id/impact` 拿到"仍引用该包动作的存档数"，在确认框里展示，
  * 提醒管理员"应用重载后，这些挂机中的玩家动作会被中断"。
  * 前端**只读**这个统计，不提供、也不触发任何玩家数据修改。
+ *
+ * task-43：本页同时展示"加载失败的外部 DLC"（`GET /admin/content/dlc-errors`），
+ * 让运维放错目录/写坏 manifest 时能在管理页直接看到可诊断原因，而不必翻服务日志。
  */
 export function ContentAdminTab() {
   const { t } = useT();
@@ -40,9 +45,11 @@ export function ContentAdminTab() {
   // 停用确认：待停用的 pack + 只读影响面
   const [confirming, setConfirming] = useState<AdminPack | null>(null);
   const [impact, setImpact] = useState<PackImpact | null>(null);
-  // 重载进行中/结果：结果一次展示到位（启用集合、校验错误、影响面、被中断动作）
+  // 重载进行中/结果：结果一次展示到位（启用集合、校验错误、影响面、被中断动作、DLC 加载失败）
   const [reloading, setReloading] = useState(false);
   const [reloadResult, setReloadResult] = useState<ContentReloadResult | null>(null);
+  // 外部 DLC 加载失败（只读诊断）；与 packs 同时刷新，坏了也不影响本页其它功能
+  const [dlcErrors, setDlcErrors] = useState<DlcErrorReport | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -50,6 +57,12 @@ export function ContentAdminTab() {
     setError(null);
     try {
       setPacks(await fetchPacks(token));
+      // 诊断信息单独拉，失败（如旧后端）只留空，不把整页判为加载失败
+      try {
+        setDlcErrors(await fetchDlcErrors(token));
+      } catch {
+        setDlcErrors(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('admin.content.load_failed'));
     } finally {
@@ -165,7 +178,8 @@ export function ContentAdminTab() {
           </p>
           <p>
             {t('admin.content.reload_errors')}: {reloadResult.validate_errors} ·{' '}
-            {t('admin.content.reload_affected')}: {reloadResult.affected_players}
+            {t('admin.content.reload_affected')}: {reloadResult.affected_players} ·{' '}
+            {t('admin.content.reload_load_errors')}: {reloadResult.load_errors}
           </p>
           {reloadResult.interrupted_actions.length > 0 && (
             <p>
@@ -174,6 +188,28 @@ export function ContentAdminTab() {
             </p>
           )}
         </div>
+      )}
+
+      {/* 外部 DLC 加载失败：放目录即可见，错误在这里直接可读，不必翻服务日志 */}
+      {dlcErrors && dlcErrors.errors.length > 0 && (
+        <section className="admin-dlc-errors">
+          <h3>
+            {t('admin.content.dlc_errors_title')} ({dlcErrors.errors.length})
+          </h3>
+          <p className="admin-readonly">
+            {t('admin.content.dlc_errors_dir')}: <span className="admin-mono">{dlcErrors.dir}</span>
+          </p>
+          <ul>
+            {dlcErrors.errors.map((item) => (
+              <li key={`${item.dir}-${item.stage}`}>
+                <span className="admin-content-badge is-pending">{item.stage}</span>
+                <span className="admin-mono">{item.dir}</span>
+                <span>{item.message}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="admin-readonly">{t('admin.content.dlc_errors_hint')}</p>
+        </section>
       )}
 
       <div className="admin-content-list">
@@ -189,6 +225,11 @@ export function ContentAdminTab() {
                 <span className="admin-mono">{pack.id}</span>
                 <span className="admin-content-name">{pack.name}</span>
                 <span className="admin-content-version">v{pack.version}</span>
+                {pack.external && (
+                  <span className="admin-content-badge is-external">
+                    {t('admin.content.external_badge')}
+                  </span>
+                )}
               </div>
               <div className="admin-content-meta">
                 <span

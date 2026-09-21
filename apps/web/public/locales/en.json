@@ -401,5 +401,10 @@
   "admin.content.impact_warning": "Warning: {n} save(s) still reference this pack's actions; applying reload will interrupt their idling.",
   "admin.content.affected_actions": "Affected actions",
   "admin.content.no_cleanup_hint": "Disabling never deletes or cleans any player save data; re-enable and apply reload to bring the content back.",
-  "admin.content.confirm_disable_title": "Disable content pack?"
+  "admin.content.confirm_disable_title": "Disable content pack?",
+  "admin.content.external_badge": "External DLC",
+  "admin.content.reload_load_errors": "DLC load failures",
+  "admin.content.dlc_errors_title": "DLCs that failed to load",
+  "admin.content.dlc_errors_dir": "Scanned directory",
+  "admin.content.dlc_errors_hint": "These DLCs were skipped and do not affect the service. Fix the files and click Apply reload to take effect. DLCs can only be placed by operators with write access to the server's mount directory; there is no upload/edit entry in the admin UI."
 }

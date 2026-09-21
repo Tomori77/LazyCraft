@@ -1,13 +1,22 @@
-import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Optional,
+  type OnModuleInit,
+} from '@nestjs/common';
 import {
   buildContentSnapshot,
+  BUILTIN_PACKS,
   createCoreRegistry,
+  type ContentPack,
   type ContentSnapshot,
 } from '@lazycraft/shared';
 import { ContentPackStateService } from './content-pack-state.service.js';
+import { ContentPackDirectoryService } from './content-pack-directory.service.js';
+import type { DlcLoadError } from './dlc-loader.service.js';
 
 /**
- * 重载结果：供管理接口如实报告"重载到了什么、有没有校验错误"。
+ * 重载结果：供管理接口如实报告"重载到了什么、有没有校验错误、有没有 DLC 加载失败"。
  *
  * 为什么把 errors 一并返回而不是只记日志？
  *   校验失败**不阻断**重载（可诊断优先），但管理员必须能从响应/审计里看到
@@ -20,6 +29,8 @@ export interface ContentReloadResult {
   errors: string[];
   /** 本次实际启用（注册进快照）的 pack id 集合，供审计与中断判定复用 */
   enabledPackIds: string[];
+  /** 本次重扫挂载目录时加载失败的外部 DLC（task-43；与 errors 同口径：只报告不阻断） */
+  loadErrors: readonly DlcLoadError[];
 }
 
 /**
@@ -36,6 +47,10 @@ export interface ContentReloadResult {
  *   后台启停 pack **不自动换快照**：只有管理员显式调用 `reload()` 时，
  *   才按最新持久化启用集合重建并原子替换（task-42 已定决策）。
  *   这是"显式重载"而不是"热更新"——中间态绝不会被 getSnapshot() 观察到。
+ *
+ * task-43 起多了一层输入源：外部 DLC（挂载目录里的 JS）由
+ * ContentPackDirectoryService 负责扫描加载，本服务在 init/reload 时先让它
+ * refresh() 再建快照，从而"新增/更新 DLC 只需重载、不需重启"。
  */
 @Injectable()
 export class ContentService implements OnModuleInit {
@@ -46,6 +61,8 @@ export class ContentService implements OnModuleInit {
     // 可选注入：脱离 Nest 生命周期直接 new 出来单测/挂载精简模块时不带 DB 也能工作，
     // 此时退回"全部启用"（createCoreRegistry 省略参数语义）。
     @Optional() private readonly packState?: ContentPackStateService,
+    // 同样可选：content.e2e 只挂 ContentModule、不挂目录模块时，退回"仅内置包"。
+    @Optional() private readonly directory?: ContentPackDirectoryService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -55,31 +72,41 @@ export class ContentService implements OnModuleInit {
   /** 只读快照：调用方不得修改，接口层直接序列化返回 */
   getSnapshot(): ContentSnapshot {
     // 懒兜底：若 onModuleInit 尚未跑到（如精简挂载），用"全启用"同步建一份
-    if (!this.snapshot) this.snapshot = this.buildWithErrors(undefined).snapshot;
+    if (!this.snapshot)
+      this.snapshot = this.buildWithErrors(
+        undefined,
+        this.availablePacks(),
+      ).snapshot;
     return this.snapshot;
   }
 
   /**
-   * 显式重载：按"最新持久化启用集合"重建快照并**原子替换**。
+   * 显式重载：重扫挂载目录 + 按"最新持久化启用集合"重建快照并**原子替换**。
    *
    * 原子性：`buildWithErrors` 会先完整构造出新的 ContentSnapshot 对象
    * （注册 + validate + 各桶拷贝全部完成）后才返回，这里只做一次赋值，
    * 因此 getSnapshot() 永远只能看到旧快照或新快照，看不到半成品。
    *
-   * 失败不阻断：读开关失败退回"全部启用"、validate 报错只如实返回错误数；
-   * 重载本身必须成功返回，否则管理员改一个坏配置就会把内容服务卡住。
+   * 失败不阻断：读开关失败退回"全部启用"、validate 报错只如实返回错误数、
+   * DLC 加载失败只进 loadErrors；重载本身必须成功返回，否则管理员改一个坏配置
+   * 就会把内容服务卡住。
    */
   async reload(): Promise<ContentReloadResult> {
-    const enabledIds = await this.readEnabledIds();
-    const { snapshot, errors } = this.buildWithErrors(enabledIds);
+    // 先重扫目录再读启用集合：新增/更新的 DLC 必须在本次重建里就位
+    await this.refreshDirectory();
+
+    const packs = this.availablePacks();
+    const enabledIds = await this.readEnabledIds(packs);
+    const { snapshot, errors } = this.buildWithErrors(enabledIds, packs);
     this.snapshot = snapshot;
 
     const enabled = snapshot.packs.map((pack) => pack.id);
+    const loadErrors = this.directory?.errors() ?? [];
     this.logger.log(
       `内容快照已重载：启用 pack [${enabled.length > 0 ? enabled.join(', ') : '无'}]，` +
-        `校验错误 ${errors.length} 项`,
+        `校验错误 ${errors.length} 项，DLC 加载失败 ${loadErrors.length} 项`,
     );
-    return { snapshot, errors, enabledPackIds: enabled };
+    return { snapshot, errors, enabledPackIds: enabled, loadErrors };
   }
 
   /**
@@ -90,17 +117,44 @@ export class ContentService implements OnModuleInit {
    * 并告警，管理员可在日志里定位。
    */
   private async init(): Promise<ContentSnapshot> {
-    const enabledIds = await this.readEnabledIds();
-    const { snapshot } = this.buildWithErrors(enabledIds);
+    await this.refreshDirectory();
+    const packs = this.availablePacks();
+    const enabledIds = await this.readEnabledIds(packs);
+    const { snapshot } = this.buildWithErrors(enabledIds, packs);
     this.snapshot = snapshot;
     return snapshot;
   }
 
-  /** 读持久化启用集合；无 packState（精简挂载）或读失败时返回 undefined（= 全启用） */
-  private async readEnabledIds(): Promise<string[] | undefined> {
+  /** 重扫挂载目录；无 directory（精简挂载）或扫描内部失败时不抛，退回既有外部包集合 */
+  private async refreshDirectory(): Promise<void> {
+    if (!this.directory) return;
+    await this.directory.refresh();
+  }
+
+  /**
+   * 当前全部可启停 pack（内置 + 外部）。
+   * 无 directory（content.e2e 只挂 ContentModule）时退回仅内置，与 task-41 行为一致。
+   */
+  private availablePacks(): readonly ContentPack[] {
+    return this.directory?.availablePacks() ?? BUILTIN_PACKS;
+  }
+
+  /**
+   * 读持久化启用集合 = "当前可用 pack" 减去 DB 显式停用项（缺行 = 启用）。
+   *
+   * 无 packState（精简挂载）或读失败时返回 undefined（= 全启用）；
+   * 求交放在这里而不是 packState：可启停集合是运行时的（含外部 DLC），
+   * 只有持有目录的 ContentService 才知道全集，packState 只给"停用集合"这一原始事实。
+   */
+  private async readEnabledIds(
+    packs: readonly ContentPack[],
+  ): Promise<string[] | undefined> {
     if (!this.packState) return undefined;
     try {
-      return await this.packState.enabledPackIds();
+      const disabled = await this.packState.disabledPackIds();
+      return packs
+        .filter((pack) => !disabled.has(pack.id))
+        .map((pack) => pack.id);
     } catch (error) {
       this.logger.warn(
         `读取内容包启用状态失败，按"全部启用"处理：${
@@ -115,11 +169,14 @@ export class ContentService implements OnModuleInit {
    * 注册（按启用集合）+ 校验 + 建快照；校验失败只打印不抛，保证服务可启动/可重载。
    * 返回 `{ snapshot, errors }` 而不是只返回快照：重载响应与审计需要如实的错误数。
    */
-  private buildWithErrors(enabledIds: string[] | undefined): {
+  private buildWithErrors(
+    enabledIds: string[] | undefined,
+    packs: readonly ContentPack[],
+  ): {
     snapshot: ContentSnapshot;
     errors: string[];
   } {
-    const { registry, errors } = createCoreRegistry(enabledIds);
+    const { registry, errors } = createCoreRegistry(enabledIds, packs);
     if (errors.length > 0) {
       // 一次打印全部错误：DLC 作者改一轮就能修复，避免"启动-改一个-再启动"
       const disabledHint =
@@ -127,9 +184,14 @@ export class ContentService implements OnModuleInit {
           ? ''
           : `（本次启用的 pack：${enabledIds.length > 0 ? enabledIds.join(', ') : '无'}；` +
             '若错误为"引用的内容未注册"，请检查是否停用了提供该内容的 pack）';
-      this.logger.error(`内容校验失败，共 ${errors.length} 项：${disabledHint}`);
+      this.logger.error(
+        `内容校验失败，共 ${errors.length} 项：${disabledHint}`,
+      );
       for (const error of errors) this.logger.error(`  - ${error}`);
     }
-    return { snapshot: buildContentSnapshot(registry), errors };
+    return {
+      snapshot: buildContentSnapshot(registry, packs),
+      errors,
+    };
   }
 }

@@ -2909,6 +2909,53 @@ select {
   border-style: dashed;
 }
 
+/* 外部 DLC 标记（task-43）：与"待应用/未生效"区分，用中性描边 */
+.admin-content-badge.is-external {
+  color: #2f5d50;
+  background: #e2efe9;
+  border-color: #9bc4b4;
+}
+
+/* ================================================================== */
+/* 加载失败的外部 DLC 展示块（task-43）                                  */
+/* ================================================================== */
+
+.admin-dlc-errors {
+  padding: 10px 12px;
+  border: 1px solid #d8a79e;
+  border-radius: 6px;
+  background: #f9ece9;
+}
+
+.admin-dlc-errors h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #9a3324;
+}
+
+.admin-dlc-errors p {
+  margin: 0 0 6px;
+}
+
+.admin-dlc-errors ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.admin-dlc-errors li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
 .admin-content-danger {
   color: #9a3324;
   border-color: #d8a79e;
