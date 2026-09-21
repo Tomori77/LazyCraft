@@ -24,4 +24,14 @@ describe('AppController', () => {
       expect(appController.getHello()).toContain('运行中');
     });
   });
+
+  // 探活路由不得挂 Guard：compose healthcheck 无凭据，若需鉴权会恒失败
+  describe('health', () => {
+    it('应返回 ok 与运行信息', () => {
+      const health = appController.getHealth();
+      expect(health.status).toBe('ok');
+      expect(typeof health.uptime).toBe('number');
+      expect(typeof health.version).toBe('string');
+    });
+  });
 });

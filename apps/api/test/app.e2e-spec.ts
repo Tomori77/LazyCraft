@@ -21,6 +21,12 @@ describe('AppController (e2e)', () => {
     expect(res.text).toContain('运行中');
   });
 
+  // compose healthcheck 用 r.ok 判断，故 2xx 即可；这里进一步断言探活语义
+  it('/health (GET)', async () => {
+    const res = await request(app.getHttpServer()).get('/health').expect(200);
+    expect(res.body.status).toBe('ok');
+  });
+
   afterEach(async () => {
     await app.close();
   });
