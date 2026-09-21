@@ -1,0 +1,6 @@
+{
+  "name": "dlc-example-source",
+  "private": true,
+  "type": "module",
+  "description": "示例 DLC 源码（非 workspace 成员）：声明 ESM，使 Node 直接 import 源文件时不做语法探测。产物由 scripts/build-dlc.mjs 生成。"
+}

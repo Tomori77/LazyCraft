@@ -1,0 +1,11 @@
+{
+  "id": "dlc_example",
+  "name": "示例采集包",
+  "version": "1.0.0",
+  "entry": "src/index.ts",
+  "author": "LazyCraft",
+  "license": "LicenseRef-LazyCraft",
+  "description": "可复制的最小 DLC 模板：1 个技能 + 2 个物品 + 1 个动作 + 三形态图标。",
+  "min_game_version": "0.1.0",
+  "homepage": "https://github.com/anomalyco/opencode"
+}
