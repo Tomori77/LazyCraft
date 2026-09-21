@@ -12,6 +12,7 @@ import { useAuth } from '../auth/auth.tsx';
 import { useAction } from '../action/action-context.tsx';
 import {
   fetchPlayer,
+  discardRequest,
   equipRequest,
   moveRequest,
   unequipRequest,
@@ -66,6 +67,40 @@ function optimisticUnequip(player: PlayerData, slot: EquipmentSlot): PlayerData 
 }
 
 /**
+ * 乐观丢弃：装备整件移除；堆叠物按 quantity 减量，减到 0 才移除该格。
+ *
+ * 为什么减量与移除要分开处理？
+ *   容器按"格数"计容量，整格丢弃才会释放一格；减量只是数字变化。
+ *   若把减量也当成移除，界面会短暂多出一格空位，与服务端真相不符。
+ */
+function optimisticDiscard(player: PlayerData, uid: string, quantity?: number): PlayerData {
+  const inInventory = player.inventory.some((i) => i.uid === uid);
+  const list = inInventory ? player.inventory : player.storage;
+  const index = list.findIndex((i) => i.uid === uid);
+  if (index < 0) return player;
+  const item = list[index];
+
+  // 装备不可拆分，恒整件；堆叠物 quantity 缺省即整格（与服务端 DiscardItemDto 同口径）
+  const discardQty = quantity ?? (item.kind === 'stack' ? item.quantity : 1);
+  const left = item.kind === 'stack' ? item.quantity - discardQty : 0;
+  const next: CarriedItem[] =
+    left > 0
+      ? list.map((cur, i) => (i === index && item.kind === 'stack' ? { ...item, quantity: left } : cur))
+      : list.filter((_, i) => i !== index);
+
+  return {
+    ...player,
+    inventory: inInventory ? next : player.inventory,
+    storage: inInventory ? player.storage : next,
+    carry: {
+      ...player.carry,
+      inventory_used: inInventory ? next.length : player.inventory.length,
+      storage_used: inInventory ? player.storage.length : next.length,
+    },
+  };
+}
+
+/**
  * 玩家状态与容器操作上下文。
  *
  * 刷新时机（05 §8）：
@@ -85,6 +120,8 @@ interface PlayerContextValue {
   equipItem: (uid: string, slot: EquipmentSlot) => Promise<void>;
   unequipItem: (slot: EquipmentSlot) => Promise<void>;
   moveItem: (uid: string, from: 'inventory' | 'storage', to: 'inventory' | 'storage') => Promise<void>;
+  /** 丢弃：quantity 缺省 = 整格（堆叠）/整件（装备） */
+  discardItem: (uid: string, quantity?: number) => Promise<void>;
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
@@ -195,9 +232,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [token, runOptimistic],
   );
 
+  const discardItem = useCallback(
+    (uid: string, quantity?: number) =>
+      runOptimistic(
+        (p) => optimisticDiscard(p, uid, quantity),
+        () => discardRequest(token as string, uid, quantity),
+      ),
+    [token, runOptimistic],
+  );
+
   return createElement(
     PlayerContext.Provider,
-    { value: { player, loading, error, refreshPlayer, equipItem, unequipItem, moveItem } },
+    { value: { player, loading, error, refreshPlayer, equipItem, unequipItem, moveItem, discardItem } },
     children,
   );
 }

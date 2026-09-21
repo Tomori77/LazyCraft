@@ -1548,6 +1548,99 @@ select {
   font-size: 11.5px;
 }
 
+/* ---------- 物品右键菜单（task-49） ---------- */
+/* 位置由内联 style 收敛到视口内，这里只定外观。
+   z-index 压过 .item-popover(85)，与悬浮页(20)/设置弹窗(300)不冲突 */
+.container-menu {
+  position: fixed;
+  z-index: 96;
+  width: 184px;
+  padding: 6px;
+  background: var(--paper-2);
+  border: 1px solid var(--wood);
+  border-radius: 7px;
+  box-shadow: var(--shadow-3);
+  font-size: 12.5px;
+}
+
+.container-menu-title {
+  padding: 3px 8px 6px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--wood);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.container-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.container-menu-item:hover:not(:disabled) {
+  background: var(--brass-weak);
+}
+
+.container-menu-item:disabled {
+  color: var(--wood-3);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.container-menu-item.is-danger {
+  color: #a5342a;
+}
+
+.container-menu-reason {
+  font-size: 10.5px;
+  color: #a5342a;
+  opacity: 0.9;
+}
+
+.container-menu-group {
+  padding: 2px 0;
+}
+
+.container-menu-label {
+  display: block;
+  padding: 2px 8px 3px;
+  font-size: 10.5px;
+  color: var(--wood-3);
+  letter-spacing: 0.06em;
+}
+
+.container-menu-qty {
+  padding: 4px 8px 6px;
+}
+
+.container-menu-detail {
+  margin-top: 4px;
+  padding: 8px 8px 6px;
+  border-top: 1px solid var(--line);
+  color: var(--wood-2);
+}
+
+/* 容器操作失败内联行（容量不足/等级不足等）：与满仓警告同色系 */
+.inventory-action-error {
+  margin: 0;
+  padding: 4px 12px 8px;
+  font-size: 12px;
+  color: #a5342a;
+}
+
 /* ============================================================ 登录 / 注册 */
 .auth-wrap {
   height: 100vh;

@@ -75,7 +75,7 @@ function GameShell({
   setDraggedEquipment,
 }: GameShellProps) {
   const { t } = useT();
-  const { player, moveItem } = usePlayer();
+  const { player, moveItem, equipItem, discardItem } = usePlayer();
   const { content, loading, error, refreshContent } = useContent();
   const { logout } = useAuth();
   const [inventorySearch, setInventorySearch] = useState('');
@@ -212,6 +212,11 @@ function GameShell({
                 onDragStartItem={onDragStartItem}
                 onDragEndItem={onDragEndItem}
                 onDropFromOther={(uid, from) => void moveItem(uid, from, 'inventory')}
+                onEquipItem={(uid, slot) => equipItem(uid, slot)}
+                onMoveItem={(uid, from, to) => moveItem(uid, from, to)}
+                onDiscardItem={(uid, quantity) => discardItem(uid, quantity)}
+                playerLevel={player?.level ?? 1}
+                equipmentSlots={content.equipmentSlots}
               />
               {(player?.carry?.inventory_used ?? 0) >= (player?.carry?.inventory_capacity ?? 0) && (
                 <p className="inventory-full-warning">{t('inventory.full')}</p>

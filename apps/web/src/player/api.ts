@@ -61,3 +61,11 @@ export function moveRequest(
 ): Promise<unknown> {
   return apiPost('/inventory/move', { uid, from, to }, token);
 }
+
+/**
+ * 丢弃单件：quantity 缺省 = 整格（堆叠）/整件（装备）。
+ * 省略而不传 1，是为了让"整格丢弃"的语义由服务端统一解释，前端不做数量推断。
+ */
+export function discardRequest(token: string, uid: string, quantity?: number): Promise<unknown> {
+  return apiPost('/inventory/discard', quantity === undefined ? { uid } : { uid, quantity }, token);
+}

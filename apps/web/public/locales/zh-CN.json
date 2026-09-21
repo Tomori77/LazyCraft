@@ -406,5 +406,15 @@
   "admin.content.reload_load_errors": "DLC 加载失败",
   "admin.content.dlc_errors_title": "加载失败的 DLC",
   "admin.content.dlc_errors_dir": "扫描目录",
-  "admin.content.dlc_errors_hint": "以上 DLC 已被跳过，不影响服务运行；修正文件后点「应用重载」即可生效。DLC 只能由能写服务器挂载目录的运维放置，后台不提供上传/编辑入口。"
+  "admin.content.dlc_errors_hint": "以上 DLC 已被跳过，不影响服务运行；修正文件后点「应用重载」即可生效。DLC 只能由能写服务器挂载目录的运维放置，后台不提供上传/编辑入口。",
+  "inventory.menu.discard": "丢弃",
+  "inventory.menu.equip": "装备",
+  "inventory.menu.move_to_storage": "移入仓库",
+  "inventory.menu.move_to_inventory": "移入背包",
+  "inventory.menu.details": "详细信息",
+  "inventory.menu.quantity": "丢弃数量",
+  "inventory.menu.all": "全部",
+  "inventory.menu.confirm": "确认丢弃",
+  "inventory.menu.not_equipment": "非装备物品，无法穿戴",
+  "inventory.menu.op_failed": "操作失败，请稍后重试"
 }

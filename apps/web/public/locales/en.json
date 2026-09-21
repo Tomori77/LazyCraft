@@ -406,5 +406,15 @@
   "admin.content.reload_load_errors": "DLC load failures",
   "admin.content.dlc_errors_title": "DLCs that failed to load",
   "admin.content.dlc_errors_dir": "Scanned directory",
-  "admin.content.dlc_errors_hint": "These DLCs were skipped and do not affect the service. Fix the files and click Apply reload to take effect. DLCs can only be placed by operators with write access to the server's mount directory; there is no upload/edit entry in the admin UI."
+  "admin.content.dlc_errors_hint": "These DLCs were skipped and do not affect the service. Fix the files and click Apply reload to take effect. DLCs can only be placed by operators with write access to the server's mount directory; there is no upload/edit entry in the admin UI.",
+  "inventory.menu.discard": "Discard",
+  "inventory.menu.equip": "Equip",
+  "inventory.menu.move_to_storage": "Move to storage",
+  "inventory.menu.move_to_inventory": "Move to inventory",
+  "inventory.menu.details": "Details",
+  "inventory.menu.quantity": "Discard quantity",
+  "inventory.menu.all": "All",
+  "inventory.menu.confirm": "Confirm discard",
+  "inventory.menu.not_equipment": "Not equipment; cannot be worn",
+  "inventory.menu.op_failed": "Operation failed, please retry"
 }

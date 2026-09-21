@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useT } from '../i18n/index.ts';
 import { usePlayer } from '../player/player-context.tsx';
+import { useContent } from '../content/content-context.tsx';
 import { InventoryGrid } from '../inventory/inventory-grid.tsx';
 import { Icon } from '../icons/icon.tsx';
 import type { CarriedItem } from '@lazycraft/shared';
@@ -19,7 +20,8 @@ interface StoragePanelProps {
 
 export function StoragePanel({ onDragStartItem, onDragEndItem }: StoragePanelProps) {
   const { t } = useT();
-  const { player, moveItem } = usePlayer();
+  const { content } = useContent();
+  const { player, moveItem, equipItem, discardItem } = usePlayer();
   const [search, setSearch] = useState('');
 
   const items = player?.storage ?? [];
@@ -51,6 +53,11 @@ export function StoragePanel({ onDragStartItem, onDragEndItem }: StoragePanelPro
         onDragStartItem={onDragStartItem}
         onDragEndItem={onDragEndItem}
         onDropFromOther={(uid, from) => void moveItem(uid, from, 'storage')}
+        onEquipItem={(uid, slot) => equipItem(uid, slot)}
+        onMoveItem={(uid, from, to) => moveItem(uid, from, to)}
+        onDiscardItem={(uid, quantity) => discardItem(uid, quantity)}
+        playerLevel={player?.level ?? 1}
+        equipmentSlots={content?.equipmentSlots ?? []}
       />
     </>
   );
