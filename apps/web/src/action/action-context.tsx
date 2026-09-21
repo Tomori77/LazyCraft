@@ -40,6 +40,13 @@ function clamp01(fraction: number): number {
   return Math.min(1, Math.max(0, fraction));
 }
 
+/** active 三元组的原子快照：三者必须一起换，避免出现"有 active 无 nextTickAt"的中间态 */
+interface ActiveSnapshot {
+  active: ActiveActionData | null;
+  nextTickAt: number | null;
+  intervalMs: number | null;
+}
+
 interface ActionContextValue {
   /** 当前进行中活动（null = 空闲） */
   active: ActiveActionData | null;
@@ -133,6 +140,24 @@ export function ActionProvider({ children }: { children: ReactNode }) {
   const settleDueRef = useRef<((boundary: number) => Promise<void>) | null>(null);
   /** 上一次看到的队列长度：用于判断队列是否发生变化（完成移除 / 接续下一项） */
   const queueLengthRef = useRef(0);
+  /**
+   * active 三元组的最新镜像，仅供 start() 判断"本地是否已有活动"。
+   *
+   * 为什么不直接把 active 塞进 start 的依赖？
+   *   那会让 start 的身份随每次活动变化重建；用 ref 镜像既读到最新值，
+   *   又不引入新依赖，也不会拿到 stale 的 active（P5-5 的乐观置位守卫需要它）。
+   * 注意：镜像可能是乐观值，它只用于"要不要乐观置位"，不用于判定服务器真相。
+   */
+  const activeSnapshotRef = useRef<ActiveSnapshot>({
+    active: null,
+    nextTickAt: null,
+    intervalMs: null,
+  });
+
+  // 镜像 active 三元组：让 start/stop 的乐观回滚读到最新值，同时不把它们加进 useCallback 依赖
+  useEffect(() => {
+    activeSnapshotRef.current = { active, nextTickAt, intervalMs };
+  }, [active, nextTickAt, intervalMs]);
 
   /* -------- 内部：仅同步 current_action（不打存档） -------- */
   const syncActive = useCallback(async () => {
@@ -227,16 +252,24 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     setPending(true);
     setError(null);
     setStopReason(null);
+    // 本地是否已有活动：有则说明服务器那边极可能也有（服务器权威，一次只有一个），
+    // 此时乐观置位会把正在跑的动作从 UI 抹掉，反而制造 P5-5 那种"服务器在跑、UI 换了脸"的错位。
+    const hadActive = activeSnapshotRef.current.active !== null;
     /**
      * 乐观置"进行中"：点击后先按本地时间立即可见，避免等服务器往返（远程 DB 下 ~500ms）。
      *
      * 为什么是"乐观 UI"而不是乐观结算？
      *   服务器权威不变：这里只改前端演出状态，不产出任何物品/经验；
      *   服务器返回的 current_action / next_tick_at 会立刻覆盖本地演出值。
-     *   若服务端拒绝（等级/材料不足等），catch 里回滚为 idle 并展示错误。
+     *   若服务端拒绝（等级/材料不足等），catch 里回滚到服务器真实状态并展示错误。
      * intervalMs 由调用方（已知内容快照）传入，避免 ActionProvider 反向依赖 Content。
+     *
+     * 为什么"已有活动就不乐观"而不是先查一次再乐观？
+     *   本地有活动几乎必然撞 409，乐观只会白白改一次 UI 再回滚（闪一下）；
+     *   而"本地空、服务器其实在跑"的罕见情况无需预查——409 就是权威信号，
+     *   catch 会拉 /current 收敛，多一次只读请求换掉一次必输的预查往返。
      */
-    if (typeof intervalMsHint === 'number') {
+    if (!hadActive && typeof intervalMsHint === 'number') {
       const optimisticStartedAt = Date.now();
       setActive({ skill_id: skillId, action_id: actionId, started_at: optimisticStartedAt });
       setNextTickAt(optimisticStartedAt + intervalMsHint);
@@ -257,17 +290,24 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       retryAfterRef.current = 0;
       lastSyncAtRef.current = Date.now();
     } catch (e) {
-      // 服务端拒绝：回滚乐观状态，否则界面会停在"假装进行中"
-      setActive(null);
-      setNextTickAt(null);
-      setIntervalMs(null);
-      progressRef.current = 0;
+      // 服务端拒绝（409 已有活动 / 403 等级材料不足等）：绝不能一律 setActive(null)。
+      //   服务器可能仍在跑旧动作，清空会让"服务器在跑、UI 空"，并断绝本地自愈路径（P5-5）。
+      // 只清掉我们本次写下的乐观假值——若此前并无本地活动，那清空只是回到"未知"，
+      // 随即由 syncActive() 用 /current 的权威结果收敛（真有旧动作就恢复它的进度）。
+      if (!hadActive) {
+        setActive(null);
+        setNextTickAt(null);
+        setIntervalMs(null);
+        progressRef.current = 0;
+      }
       setError(e instanceof Error ? e.message : '操作失败');
+      // 失败也要拉一次真相：这是本地状态与服务器重新对齐的入口，不依赖 20s 对时兜底
+      await syncActive().catch(() => undefined);
       throw e;
     } finally {
       setPending(false);
     }
-  }, [token]);
+  }, [token, syncActive]);
 
   /* -------- 对外：停止并结算 -------- */
   const stop = useCallback(async () => {
@@ -276,7 +316,8 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     setError(null);
     // 乐观退出"进行中"：点击即停，进度条/按钮立刻消失；结算仍在服务器完成，
     // settleNonce 在 requestStop 成功后（产物已落库）才 bump，避免提前刷新读到旧背包。
-    const wasActive = active;
+    // 记下回滚用的快照；用 ref 而不是 active 入参，避免 stop 的身份随活动变化重建
+    const snapshot = activeSnapshotRef.current;
     setActive(null);
     setNextTickAt(null);
     setIntervalMs(null);
@@ -292,17 +333,19 @@ export function ActionProvider({ children }: { children: ReactNode }) {
       setSettleNonce((n) => n + 1);
       lastSyncAtRef.current = Date.now();
     } catch (e) {
-      // 服务端拒绝：把乐观清掉的活动恢复回来，避免界面与服务器状态不一致
-      if (wasActive) {
-        setActive(wasActive);
-        void syncActive().catch(() => undefined);
-      }
+      // 与 start 同一原则：失败不得停在"本地空"，必须收敛到服务器真相。
+      //   先按快照即刻还原（避免一闪而空），再无条件 syncActive()——本地快照可能本身就
+      //   是误判（服务器正在跑、本地却以为空），只还原快照会漏掉这种情况。
+      setActive(snapshot.active);
+      setNextTickAt(snapshot.nextTickAt);
+      setIntervalMs(snapshot.intervalMs);
       setError(e instanceof Error ? e.message : '操作失败');
+      await syncActive().catch(() => undefined);
       throw e;
     } finally {
       setPending(false);
     }
-  }, [token, active, syncActive]);
+  }, [token, syncActive]);
 
   /* -------- 对外：队列面板操作后调用 -------- */
   const refreshQueue = useCallback(async (): Promise<QueueResponse> => {
@@ -376,15 +419,24 @@ export function ActionProvider({ children }: { children: ReactNode }) {
     };
   }, [active, nextTickAt, intervalMs, settleDue]);
 
-  /* -------- 20s 对时：只有 active 时才需要 -------- */
+  /* -------- 20s 对时：已登录就保持，不因本地 active 为空而停摆 -------- */
   useEffect(() => {
-    if (!active || !token) {
+    if (!token) {
       if (syncTimerRef.current !== null) {
         window.clearInterval(syncTimerRef.current);
         syncTimerRef.current = null;
       }
       return;
     }
+    /**
+     * 守卫只看 token，不再看 active（P5-5）。
+     *
+     * 为什么？active 是本地演出状态，可能因一次误判为空；若对时也依赖它，
+     * 定时器会被一起清掉且不再重建（依赖变 null 后 effect 不再触发），
+     * 前端自此彻底失去"从服务器拉真相"的自愈能力，界面永久卡死。
+     * 代价：空闲时也每 20s 发一次轻量只读 GET /current——用一次可忽略的
+     * 请求换来自愈路径永不中断，这个取舍是划算的。
+     */
     syncTimerRef.current = window.setInterval(() => {
       syncActive().catch(() => undefined);
     }, SYNC_INTERVAL_MS);
@@ -394,7 +446,7 @@ export function ActionProvider({ children }: { children: ReactNode }) {
         syncTimerRef.current = null;
       }
     };
-  }, [active, token, syncActive]);
+  }, [token, syncActive]);
 
   const value: ActionContextValue = {
     active,
